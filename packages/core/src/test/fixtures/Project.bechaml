@@ -1,0 +1,28 @@
+<Project>
+    <Name>"TestProject"</Name>                            <!-- binary and CMake name; may differ from the app name -->
+    <Identifier>"me.lawnmeower.testproject"</Identifier>  <!-- proposed: packaging for Android, macOS, consoles -->
+    <Version>"0.1.0"</Version>
+    <CMakeVersion>"3.16"</CMakeVersion>
+    <Platforms>{ "Windows", "Linux", "Wii" }</Platforms>
+
+    <Windows>
+        <Language Name="C++" Standard="23"/>              <!-- or C++11, C99, C# 7.3, Python 3.12, Rust 2024, ... -->
+        <Compiler>"MSVC"</Compiler>                       <!-- MSVC, clang-cl, Clang, GCC; the path is per computer -->
+    </Windows>
+    <Linux>
+        <Language Name="C++" Standard="23"/>
+        <Compiler>"GCC"</Compiler>
+    </Linux>
+    <Wii>
+        <Language Name="C" Standard="99"/>                <!-- a port of a legacy C project -->
+        <Compiler>"devkitPPC"</Compiler>
+    </Wii>
+    <AllowNonRoyaltyFreeCodecs>False</AllowNonRoyaltyFreeCodecs>
+    <Features>{ "Video", "Audio", "TrackerModules", "Models" }</Features>   <!-- proposed -->
+    <AppSettings>"App/App.bechaml"</AppSettings>
+    <StartWindow>"source/code/Windows/MainWindow.bechaml"</StartWindow>      <!-- proposed -->
+    <Assets>{ "Assets", "extern/SharedAssets" }</Assets>   <!-- the project's asset folders, in lookup order -->
+    <Authors>{ "Lawn Meower" }</Authors>                   <!-- proposed -->
+    <License>"Proprietary"</License>                       <!-- proposed -->
+    <RemovedSlots>"CommentOut"</RemovedSlots>              <!-- or "Delete" -->
+</Project>

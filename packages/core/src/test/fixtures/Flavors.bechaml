@@ -1,0 +1,23 @@
+<Flavors>
+    <Flavor Name="Primary">
+        <Background FillType="LinearGradient"
+                    GradientDegree=Dictionary.Degrees.BackgroundColorDirection
+                    Colors:Enabled=Dictionary.Colors.Eigengrau/>
+        <Border CornerRadii=Dictionary.CornerRadii.DefaultButtonRadii
+                CutCorners=Dictionary.CornerTypes.DefaultButtonCornerTypes
+                Colors:Hover=Dictionary.Colors.HoveredLook/>
+        <Indicator>
+            <Background Colors:Enabled={ #1144FFFF }/>
+        </Indicator>
+    </Flavor>
+
+    <Flavor Name="Wide">
+        <Text Padding=24.0/>
+    </Flavor>
+
+    <Flavor Name="Toolbar" Size={ 24, 24 }/>     <!-- Size sits on the flavor itself -->
+
+    <Flavor Name="Default">                       <!-- Flavors.Default: what every widget falls back to -->
+        <Text FontFamily="Noto Sans"/>
+    </Flavor>
+</Flavors>

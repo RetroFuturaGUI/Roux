@@ -1,0 +1,15 @@
+{
+    "name": "@retrofuturagui/roux-ui",
+    "description": "Roux's webview UI: plain HTML, CSS and JavaScript, served as they are",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "files":
+    [
+        "src"
+    ],
+    "exports":
+    {
+        "./package.json": "./package.json"
+    }
+}

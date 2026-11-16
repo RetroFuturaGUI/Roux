@@ -1,0 +1,4 @@
+<ProjectUser>
+    <BuildType>"Debug"</BuildType>              <!-- Debug, Release, RelWithDebInfo, MinSizeRel -->
+    <ActivePlatform>"Windows"</ActivePlatform>
+</ProjectUser>

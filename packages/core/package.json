@@ -1,0 +1,23 @@
+{
+    "name": "@retrofuturagui/roux-core",
+    "description": "Roux's core: parser, generator, project model, checks and build runner behind one JSON-RPC server",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "exports":
+    {
+        ".":
+        {
+            "types": "./out/index.d.ts",
+            "default": "./out/index.js"
+        }
+    },
+    "scripts":
+    {
+        "test": "node --test --enable-source-maps \"out/test/**/*.test.js\""
+    },
+    "dependencies":
+    {
+        "@retrofuturagui/roux-protocol": "*"
+    }
+}

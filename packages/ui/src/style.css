@@ -1,0 +1,659 @@
+.tab
+{
+  overflow: hidden;
+  border: 1px solid #ccc;
+  background-color: #000000;
+}
+
+.tab button
+{
+  background-color: inherit;
+  float: left;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 14px 16px;
+  transition: 0.3s;
+    color:#ddd;
+}
+
+.tab button:hover
+{
+  background-color: #353535;
+}
+
+.tab button.active
+{
+  background-color: #2b2b2b;
+}
+
+.tabcontent
+{
+  display: none;
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  border-top: none;
+  animation: fadeEffect 500ms;
+}
+
+/*#tabcontainer
+{
+    border: 1px solid #55f;
+    box-sizing: border-box;
+    height: 70vh;
+}*/
+
+body
+{
+    background-color: #1d1d24;
+    color:#ddd;
+    font-family:Arial, Helvetica, sans-serif;
+}
+
+/* Setup tab. Colors as variables, so an IDE shell can map them to its theme later. */
+:root
+{
+    --roux-ok: #5cb85c;
+    --roux-warning: #e0a030;
+    --roux-error: #e05555;
+    --roux-muted: #888;
+    --roux-border: #3a3a44;
+    --roux-field: #2b2b2b;
+}
+
+.checks
+{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.check
+{
+    display: grid;
+    grid-template-columns: 1.5em 9em 1fr auto;
+    align-items: start;
+    gap: 4px 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--roux-border);
+}
+
+.check.ok .status { color: var(--roux-ok); }
+.check.warning .status { color: var(--roux-warning); }
+.check.error .status { color: var(--roux-error); }
+.check.skipped { color: var(--roux-muted); }
+.check.checking { color: var(--roux-muted); }
+
+.check button:disabled,
+.setup-footer button:disabled
+{
+    cursor: default;
+    opacity: 0.5;
+}
+
+.check .name
+{
+    font-weight: bold;
+}
+
+.check .detail
+{
+    overflow-wrap: anywhere;
+}
+
+.hint
+{
+    display: block;
+    color: var(--roux-muted);
+    font-size: 0.9em;
+}
+
+.check select,
+.check code,
+.check pre,
+.check button,
+.check summary,
+.setup-footer button
+{
+    background-color: var(--roux-field);
+    color: #ddd;
+    border: 1px solid var(--roux-border);
+    border-radius: 3px;
+    padding: 4px 8px;
+}
+
+.check select
+{
+    max-width: 100%;
+}
+
+.check summary,
+.check button,
+.setup-footer button
+{
+    cursor: pointer;
+}
+
+/* The command shows first; Run sits below it. */
+.check .action
+{
+    justify-self: end;
+    text-align: right;
+}
+
+/* A row's second fix (Install after its dry run) goes under the first, in the same column. */
+.check .action + .action
+{
+    grid-column: 4;
+}
+
+.check a.action
+{
+    color: #ddd;
+    background-color: var(--roux-field);
+    border: 1px solid var(--roux-border);
+    border-radius: 3px;
+    padding: 4px 8px;
+    text-decoration: none;
+}
+
+.check .action .hint
+{
+    margin-bottom: 6px;
+}
+
+.check .action pre
+{
+    max-height: 16em;
+    overflow: auto;
+}
+
+.check .action[open]
+{
+    grid-column: 2 / -1;
+    justify-self: stretch;
+    text-align: left;
+}
+
+.check .action code,
+.check .action pre
+{
+    display: block;
+    margin: 6px 0;
+    font-family: Consolas, "DejaVu Sans Mono", monospace;
+    white-space: pre-wrap;
+}
+
+.setup-footer
+{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding-top: 10px;
+}
+
+/* Above the Project and App forms: a missing file, or the problems that keep the form read-only. */
+.file-status
+{
+    border: 1px solid var(--roux-warning);
+    border-radius: 3px;
+    margin: 0 0 12px 0;
+    padding: 8px 12px;
+}
+
+.file-status p
+{
+    margin: 0 0 6px 0;
+}
+
+.file-status .problems
+{
+    margin: 0;
+    padding-left: 1.2em;
+    font-family: Consolas, "DejaVu Sans Mono", monospace;
+    font-size: 0.9em;
+    overflow-wrap: anywhere;
+}
+
+.file-status button
+{
+    background-color: var(--roux-field);
+    color: #ddd;
+    border: 1px solid var(--roux-border);
+    border-radius: 3px;
+    padding: 4px 8px;
+    cursor: pointer;
+}
+
+.form.read-only
+{
+    opacity: 0.6;
+}
+
+.form button:disabled
+{
+    cursor: default;
+    opacity: 0.5;
+}
+
+/* Project tab. */
+.form fieldset
+{
+    border: 1px solid var(--roux-border);
+    border-radius: 3px;
+    margin: 0 0 12px 0;
+    padding: 8px 12px;
+}
+
+.form legend
+{
+    font-weight: bold;
+    padding: 0 4px;
+}
+
+.field
+{
+    display: grid;
+    grid-template-columns: 9em 1fr;
+    align-items: center;
+    gap: 4px 8px;
+    padding: 6px 0;
+}
+
+/* Hints, messages and lists sit under the control, in its column. */
+.field .hint,
+.field .message,
+.field .entries,
+.field .add
+{
+    grid-column: 2;
+}
+
+.field input:not([type="checkbox"]),
+.field select,
+.field button,
+.entries button,
+.form-footer button
+{
+    background-color: var(--roux-field);
+    color: #ddd;
+    border: 1px solid var(--roux-border);
+    border-radius: 3px;
+    padding: 4px 8px;
+    font: inherit;
+}
+
+.field input:not([type="checkbox"])
+{
+    min-width: 0;
+}
+
+.field button,
+.entries button,
+.form-footer button
+{
+    cursor: pointer;
+}
+
+.field .add
+{
+    justify-self: start;
+}
+
+.inline
+{
+    display: flex;
+    gap: 6px;
+    min-width: 0;
+}
+
+.inline input
+{
+    flex: 1;
+}
+
+.field.invalid input
+{
+    border-color: var(--roux-error);
+}
+
+.field .message
+{
+    color: var(--roux-error);
+    font-size: 0.9em;
+}
+
+/* Standards this computer can't build yet: listed, grayed out, still selectable. */
+.field option
+{
+    color: #ddd;
+}
+
+.field option.unavailable,
+.field select.unavailable
+{
+    color: var(--roux-muted);
+}
+
+/* While a field is invalid, its message takes the hint's place. */
+.field.invalid .hint
+{
+    display: none;
+}
+
+.entries
+{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.entries li
+{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 0;
+}
+
+.choices
+{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11em, 1fr));
+    gap: 6px 12px;
+}
+
+.choices label span
+{
+    color: var(--roux-muted);
+    font-size: 0.85em;
+}
+
+.choices .planned
+{
+    color: var(--roux-muted);
+}
+
+.features
+{
+    grid-template-columns: 1fr;
+}
+
+/* The codec switch spans both columns; its warning shows only while it's on. */
+.field.codec
+{
+    grid-template-columns: 1fr;
+    padding-top: 10px;
+}
+
+.field.codec .message
+{
+    display: none;
+    grid-column: 1;
+}
+
+.field.codec:has(input:checked) .message
+{
+    display: block;
+}
+
+.form-footer
+{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+/* App tab. */
+.field .label
+{
+    align-self: start;
+}
+
+.field .source,
+.field .reset,
+.field.setting > .hint
+{
+    grid-column: 2;
+}
+
+.field .source
+{
+    color: var(--roux-muted);
+    font-size: 0.85em;
+}
+
+.field .reset
+{
+    justify-self: start;
+    font-size: 0.85em;
+}
+
+.inline .reset
+{
+    flex: none;
+}
+
+/* An inherited value: shown, grayed out, until it's changed here. */
+.setting.inherited input:not([type="checkbox"]),
+.setting.inherited select,
+.setting.inherited .ordered li,
+.setting.inherited .choices
+{
+    color: var(--roux-muted);
+    font-style: italic;
+}
+
+.inline input.number
+{
+    flex: 0 0 4em;
+}
+
+.ordered
+{
+    margin-bottom: 6px;
+}
+
+.ordered li
+{
+    border: 1px solid var(--roux-border);
+    border-radius: 3px;
+    margin-bottom: 4px;
+    padding: 2px 6px;
+}
+
+.ordered li button
+{
+    margin-left: 4px;
+}
+
+.charset
+{
+    border-top: 1px solid var(--roux-border);
+    margin-top: 6px;
+    padding-top: 4px;
+}
+
+.charset input[readonly]
+{
+    color: var(--roux-muted);
+}
+
+.warnings
+{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.warnings li
+{
+    padding: 3px 0;
+}
+
+.warnings li::before
+{
+    display: inline-block;
+    width: 1.5em;
+}
+
+.warnings .ok::before { content: "✔"; color: var(--roux-ok); }
+.warnings .warning::before { content: "⚠"; color: var(--roux-warning); }
+.warnings .error::before { content: "✖"; color: var(--roux-error); }
+
+/* Build tab. */
+.build-actions
+{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.build-actions button
+{
+    background-color: var(--roux-field);
+    color: #ddd;
+    border: 1px solid var(--roux-border);
+    border-radius: 3px;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+.build-actions button.primary
+{
+    border-color: var(--roux-ok);
+}
+
+.build-actions button:disabled
+{
+    color: var(--roux-muted);
+    cursor: default;
+}
+
+.steps
+{
+    list-style: none;
+    margin: 0 0 12px 0;
+    padding: 0;
+}
+
+.steps button
+{
+    display: grid;
+    grid-template-columns: 1.5em 6em 4em 1fr;
+    gap: 8px;
+    width: 100%;
+    background: none;
+    color: inherit;
+    border: none;
+    border-bottom: 1px solid var(--roux-border);
+    padding: 6px 4px;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+}
+
+.steps .shown button
+{
+    background-color: var(--roux-field);
+}
+
+.steps .ok .status { color: var(--roux-ok); }
+.steps .failed .status { color: var(--roux-error); }
+.steps .running .status { color: var(--roux-warning); }
+.steps .stopped .status { color: var(--roux-warning); }
+.steps .idle,
+.steps .waiting,
+.steps .skipped { color: var(--roux-muted); }
+.log .command { color: var(--roux-muted); }
+.log .note { color: var(--roux-muted); font-style: italic; }
+
+.steps .time
+{
+    color: var(--roux-muted);
+}
+
+.log
+{
+    background-color: #111116;
+    border: 1px solid var(--roux-border);
+    border-radius: 3px;
+    padding: 8px;
+    margin: 0;
+    min-height: 8em;
+    max-height: 20em;
+    overflow: auto;
+    font-family: Consolas, "DejaVu Sans Mono", monospace;
+    font-size: 0.9em;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.log .error { color: var(--roux-error); }
+.log .warning { color: var(--roux-warning); }
+
+.log a
+{
+    color: inherit;
+    text-decoration: underline;
+}
+
+.mockup-option
+{
+    display: block;
+    color: var(--roux-muted);
+    font-size: 0.85em;
+    margin-top: 8px;
+}
+
+/* An IDE side panel is narrow: the detail moves under the name. */
+@media (max-width: 480px)
+{
+    .check
+    {
+        grid-template-columns: 1.5em 1fr auto;
+    }
+
+    .check .detail
+    {
+        grid-column: 2 / -1;
+        grid-row: 2;
+    }
+
+    /* The step's summary moves under its name. */
+    .steps button
+    {
+        grid-template-columns: 1.5em 1fr auto;
+    }
+
+    .steps .summary
+    {
+        grid-column: 2 / -1;
+    }
+
+    /* Labels go above their controls. */
+    .field
+    {
+        grid-template-columns: 1fr;
+    }
+
+    .field .hint,
+    .field .message,
+    .field .entries,
+    .field .add,
+    .field .source,
+    .field .reset,
+    .field.setting > .hint
+    {
+        grid-column: 1;
+    }
+}
+
+@keyframes fadeEffect
+{
+  from {opacity: 0;}
+  to {opacity: 1;}
+}

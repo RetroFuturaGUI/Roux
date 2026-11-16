@@ -1,0 +1,35 @@
+<AppSettings>
+    <AppName>"RetroFuturaGUI Test"</AppName>
+    <Renderers>{ "OpenGL" }</Renderers>                 <!-- ordered: the first that starts wins; only compiled-in ones -->
+    <Requires>{ "MultiWindow", "FileSystem" }</Requires>
+    <LayoutFile>"RetroFuturaGUI.ini"</LayoutFile>       <!-- empty: no layout file -->
+    <DefaultFont Family="Noto Sans" Size=25 Unit="Points"/>
+    <Transitions>"Off"</Transitions>
+
+    <Charsets>
+        <Charset Name="Japanese">{ "Hiragana", "Katakana", "CJK Symbols and Punctuation", "CJK Unified Ideographs" }</Charset>
+        <Charset Name="Cyrillic">{ "Cyrillic" }</Charset>
+        <Charset Name="Emoji">{ "Emoticons", "Miscellaneous Symbols and Pictographs" }</Charset>
+    </Charsets>
+
+    <Desktop>                                           <!-- group: Windows, Linux, macOS -->
+        <Requires>{ "MultiWindow", "FileSystem", "Mouse" }</Requires>
+    </Desktop>
+
+    <Windows>
+        <Renderers>{ "DirectX", "OpenGL" }</Renderers>
+        <CharsetFont Charset="Japanese">"Yu Mincho"</CharsetFont>
+        <CharsetFont Charset="Emoji">"Segoe UI Emoji"</CharsetFont>
+    </Windows>
+
+    <Linux>
+        <WindowSystems>{ "Wayland", "X11" }</WindowSystems>
+        <CharsetFont Charset="Japanese">"Noto Sans CJK JP"</CharsetFont>
+        <CharsetFont Charset="Emoji">"Noto Color Emoji"</CharsetFont>
+    </Linux>
+
+    <Wii>
+        <Renderers>{ "GX" }</Renderers>
+        <LayoutFile/>                                   <!-- one screen, no windows to remember -->
+    </Wii>
+</AppSettings>

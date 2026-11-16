@@ -1,0 +1,16 @@
+<Scene Name="MainScene" Aesthetic=Aesthetics.ColorfulPop OnUpdate=Slots.UpdateMeter>
+    <Slot>void Accept()</Slot>
+    <Slot Async>void Save()</Slot>
+    <Slot>void UpdateMeter()</Slot>
+
+    <Lasagna Name="RootLasagna" Rows=3 Columns=2 Layers=1>
+        <Label Name="Title" Row=0 Column=0>
+            <Text String="Welcome" FontSize=32/>
+        </Label>
+
+        <Button Name="OkButton" Row=2 Column=1 Flavors={ Flavors.Primary, Flavors.Wide } OnClick={ Slots.Accept, Slots.Save }>
+            <Text String="OK"/>
+            <Border Colors:Hover=Dictionary.Colors.HoveredLook/>
+        </Button>
+    </Lasagna>
+</Scene>

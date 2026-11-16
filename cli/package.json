@@ -1,0 +1,21 @@
+{
+    "name": "@retrofuturagui/roux-cli",
+    "description": "roux generate | build | run | serve: Roux without an IDE",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "bin":
+    {
+        "roux": "./out/main.js"
+    },
+    "scripts":
+    {
+        "test": "node --test --enable-source-maps \"out/test/**/*.test.js\""
+    },
+    "dependencies":
+    {
+        "@retrofuturagui/roux-core": "*",
+        "@retrofuturagui/roux-protocol": "*",
+        "@retrofuturagui/roux-ui": "*"
+    }
+}

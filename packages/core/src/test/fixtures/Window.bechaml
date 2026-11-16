@@ -1,0 +1,4 @@
+<Window Name="MainWindow" Title="RetroFuturaGUI Test" Width=1280 Height=720 Aesthetic=Aesthetics.ColorfulPop>
+    <Scene Path="Scenes/MenuBarScene.bechaml" Dock="Top"/>   <!-- the window bar: a scene with a MenuBar -->
+    <Scene Path="Scenes/MainScene.bechaml"/>
+</Window>

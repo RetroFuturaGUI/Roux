@@ -1,0 +1,15 @@
+<Aesthetic Name="ColorfulPop">
+    <AnyWidget>                         <!-- every widget -->
+        <Text FontFamily="Noto Sans"/>
+    </AnyWidget>
+
+    <Button>                            <!-- every Button in the scenes using ColorfulPop -->
+        <Border Colors:Hover=Dictionary.Colors.HoveredLook/>
+    </Button>
+
+    <FileExplorer>                      <!-- a popup's own scope (proposed) -->
+        <Button>
+            <Border Colors:Hover=Dictionary.Colors.HoveredLook/>
+        </Button>
+    </FileExplorer>
+</Aesthetic>

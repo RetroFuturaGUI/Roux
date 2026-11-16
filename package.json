@@ -1,0 +1,31 @@
+{
+    "name": "roux",
+    "description": "The .bechaml config tool and RetroFuturaGUI project setup",
+    "private": true,
+    "type": "module",
+    "workspaces": [
+        "packages/protocol",
+        "packages/core",
+        "packages/ui",
+        "cli"
+    ],
+    "scripts": {
+        "build": "tsc -b",
+        "watch": "tsc -b -w",
+        "clean": "tsc -b --clean",
+        "lint": "eslint .",
+        "test": "npm run build && npm run test --workspaces --if-present",
+        "serve": "npm run build && node cli/out/main.js serve",
+        "check": "npm run build && node cli/out/main.js check"
+    },
+    "engines": {
+        "node": ">=22"
+    },
+    "devDependencies": {
+        "@types/node": "22.19.0",
+        "@typescript-eslint/eslint-plugin": "8.72.1",
+        "@typescript-eslint/parser": "8.72.1",
+        "eslint": "10.14.0",
+        "typescript": "5.9.3"
+    }
+}

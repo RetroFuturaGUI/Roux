@@ -1,0 +1,10 @@
+<Button Name="OkButton" RowSpan=2 Flavors={ Flavors.Primary, Flavors.Wide } OnClick=Slots.Print>
+    <Text String="OK" FontSize=20/>
+    <Border Width=2.0
+            CornerRadii=Dictionary.CornerRadii.DefaultButtonRadii
+            Colors:Enabled=Dictionary.Colors.Grey
+            Colors:Hover=Dictionary.Colors.White/>
+    <Indicator>
+        <Background Colors:Enabled={ #1144FFFF }/>
+    </Indicator>
+</Button>

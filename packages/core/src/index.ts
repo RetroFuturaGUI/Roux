@@ -1,0 +1,18 @@
+export { Core, type CoreOptions } from "./Core.js";
+export { InvalidParamsError, JsonRpcServer, type EventSink, type MethodHandler } from "./JsonRpcServer.js";
+export { currentEnvironment, type MachineEnvironment } from "./setup/Environment.js";
+export { findCMake } from "./setup/CMake.js";
+export type { FixOutcome, FixRunner } from "./setup/FixRunner.js";
+export { formatBool, formatColor, formatFloat, formatInteger, formatList, formatString, replaceValue, type EditResult } from "./bechaml/Edit.js";
+export { LineMap, type Position } from "./bechaml/LineMap.js";
+export { parseBechaml, parseBechamlValue } from "./bechaml/Parser.js";
+export * from "./bechaml/Syntax.js";
+export { BechamlEditor, findChild, stringAttribute, type ElementPath, type PathStep } from "./bechaml/Editor.js";
+export { findProjectFolder, ProjectSession } from "./project/ProjectSession.js";
+export { generateNeed, generateProject, type GenerateNeed, type GenerateProblem, type GenerateResult } from "./generate/Generator.js";
+export { cmakeString, projectCMakeText, cmakeRegions, projectCMakePath, type ProjectFiles } from "./generate/ProjectCMake.js";
+export { newCMakeListsText, updateRegions, type RegionContent, type RegionProblem, type RegionUpdate } from "./generate/CMakeRegions.js";
+export { makeSchema, schemaFileName, splitDump, headersHash, type SchemaRequest, type SchemaResult } from "./schema/SchemaFile.js";
+export { buildSchema, readTags, type AstNode, type BuiltSchema } from "./schema/SchemaBuilder.js";
+export * from "./schema/Schema.js";
+export { findClang } from "./setup/Clang.js";

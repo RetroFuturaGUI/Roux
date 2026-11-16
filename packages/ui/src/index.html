@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf8"/>
+        <link rel="stylesheet" href="style.css"/>
+        <script src="bridge.js" defer></script>
+        <script src="script.js" defer></script>
+        <script src="setup.js" defer></script>
+        <script src="app.js" defer></script>
+        <script src="project.js" defer></script>
+        <script src="build.js" defer></script>
+        <title>Roux</title>
+    </head>
+    <body>
+        <div class="tab">
+            <button class="tablinks" data-tab="Setup">Setup</button>
+            <button class="tablinks" data-tab="Project">Project</button>
+            <button class="tablinks" data-tab="App">App</button>
+            <button class="tablinks" data-tab="Build">Build</button>
+        </div>
+        <div id="tabcontainer">
+            <div id="Setup" class="tabcontent">
+                <h3>Setup</h3>
+                <!-- Mockup: fake data showing every state a row can be in. Rows with data-component are filled in by the core
+                     (setup.js); the others stay fake until their checks exist. -->
+                <ul class="checks">
+                    <li class="check ok">
+                        <span class="status" aria-label="ok">✔</span>
+                        <span class="name">Git</span>
+                        <span class="detail">2.47.1 &middot; C:\Program Files\Git</span>
+                    </li>
+                    <li class="check ok">
+                        <span class="status" aria-label="ok">✔</span>
+                        <span class="name">Submodules</span>
+                        <span class="detail">RetroFuturaGUI, PlatformBridge</span>
+                    </li>
+                    <li class="check ok" data-component="CMake">
+                        <span class="status" aria-label="ok">✔</span>
+                        <span class="name">CMake</span>
+                        <span class="detail">
+                            <select aria-label="CMake installation">
+                                <option>3.31.2 &middot; C:\Program Files\CMake</option>
+                                <option>3.29.5 &middot; Visual Studio 2022 (bundled)</option>
+                            </select>
+                            <span class="hint">needs 3.16 or newer</span>
+                        </span>
+                    </li>
+                    <li class="check error">
+                        <span class="status" aria-label="error">✖</span>
+                        <span class="name">Ninja</span>
+                        <span class="detail">not found</span>
+                        <details class="action">
+                            <summary>Install</summary>
+                            <code>winget install Ninja-build.Ninja</code>
+                            <button>Run</button>
+                        </details>
+                    </li>
+                    <li class="check ok">
+                        <span class="status" aria-label="ok">✔</span>
+                        <span class="name">Compiler</span>
+                        <span class="detail">Visual Studio 2022 Community &middot; vcvars64 found</span>
+                    </li>
+                    <li class="check ok">
+                        <span class="status" aria-label="ok">✔</span>
+                        <span class="name">VCPKG_ROOT</span>
+                        <span class="detail">C:\vcpkg</span>
+                    </li>
+                    <li class="check error">
+                        <span class="status" aria-label="error">✖</span>
+                        <span class="name">vcpkg tool</span>
+                        <span class="detail">older than its ports tree</span>
+                        <details class="action">
+                            <summary>Bootstrap</summary>
+                            <code>C:\vcpkg\bootstrap-vcpkg.bat</code>
+                            <button>Run</button>
+                        </details>
+                    </li>
+                    <li class="check warning">
+                        <span class="status" aria-label="warning">⚠</span>
+                        <span class="name">Ports</span>
+                        <span class="detail">libopenmpt missing for x64-windows</span>
+                        <details class="action">
+                            <summary>Dry run</summary>
+                            <code>vcpkg install libopenmpt:x64-windows --dry-run</code>
+                            <pre>The following packages will be built and installed:
+    libopenmpt:x64-windows
+  * mpg123:x64-windows
+  * libvorbis:x64-windows
+Rebuilt for other projects: none</pre>
+                            <button>Install</button>
+                        </details>
+                    </li>
+                    <li class="check ok">
+                        <span class="status" aria-label="ok">✔</span>
+                        <span class="name">FFmpeg licensing</span>
+                        <span class="detail">no gpl, no nonfree</span>
+                    </li>
+                    <li class="check skipped">
+                        <span class="status" aria-label="not needed">&ndash;</span>
+                        <span class="name">.NET SDK</span>
+                        <span class="detail">not needed for C++</span>
+                    </li>
+                    <li class="check ok">
+                        <span class="status" aria-label="ok">✔</span>
+                        <span class="name">Clang</span>
+                        <span class="detail">23.1.5 · LLVM · only for RetroFuturaGUI's Schema.json (roux schema)</span>
+                    </li>
+                </ul>
+                <div class="setup-footer">
+                    <span class="hint">The chosen installations are saved for this computer (Machine.bechaml).</span>
+                    <button id="setup-search-again">Search again</button>
+                </div>
+            </div>
+            <div id="Project" class="tabcontent">
+                <h3>Project</h3>
+                <!-- Opened as a file: fake data. Served by Roux: the real Project.bechaml (project.js), every field editing one value in it. -->
+                <div class="file-status" id="project-status" hidden></div>
+                <form class="form" id="project-form">
+                    <fieldset>
+                        <legend>Identity</legend>
+                        <div class="field">
+                            <label for="project-name">Name</label>
+                            <input id="project-name" value="TestProject"
+                                   data-pattern="^[A-Za-z_][A-Za-z0-9_]*$"
+                                   data-message="Letters, digits and _ only, not starting with a digit."/>
+                            <span class="hint">The binary and the CMake project: letters, digits and _ only. May differ from the app name.</span>
+                        </div>
+                        <div class="field">
+                            <label for="project-identifier">Identifier</label>
+                            <input id="project-identifier" value="me.lawnmeower.testproject"
+                                   data-pattern="^([a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+)?$"
+                                   data-message="Reverse domain with at least two parts, in lower case: com.example.app"/>
+                            <span class="hint">Reverse domain, for packaging on Android, macOS and consoles. Empty until it's needed.</span>
+                        </div>
+                        <div class="field">
+                            <label for="project-version">Version</label>
+                            <input id="project-version" value="0.1"
+                                   data-pattern="^\d+\.\d+\.\d+$"
+                                   data-message="Needs three numbers: major.minor.patch (0.1.0)."/>
+                        </div>
+                        <div class="field">
+                            <span class="label" id="project-authors-label">Authors</span>
+                            <ul class="entries" id="project-authors" aria-labelledby="project-authors-label">
+                                <li>Lawn Meower <button type="button" aria-label="Remove Lawn Meower">✕</button></li>
+                            </ul>
+                            <button type="button" class="add" id="project-author-add">+ Author</button>
+                        </div>
+                        <div class="field">
+                            <label for="project-license">License</label>
+                            <select id="project-license">
+                                <option>Proprietary</option>
+                                <option>MIT</option>
+                                <option>Apache-2.0</option>
+                                <option>BSD-3-Clause</option>
+                            </select>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Platforms</legend>
+                        <!-- Mockup: the planned platforms can be ticked, so the filtering can be tried out. -->
+                        <div class="choices" id="project-platforms">
+                            <label><input type="checkbox" value="Windows" checked/> Windows</label>
+                            <label><input type="checkbox" value="Linux" checked/> Linux</label>
+                            <!-- <label class="planned"><input type="checkbox" value="macOS"/> macOS <span>planned</span></label>
+                            <label class="planned"><input type="checkbox" value="Android"/> Android <span>planned</span></label>
+                            <label class="planned"><input type="checkbox" value="GameCube"/> GameCube <span>planned</span></label>
+                            <label class="planned"><input type="checkbox" value="Wii"/> Wii <span>planned</span></label>
+                            <label class="planned"><input type="checkbox" value="WiiU"/> WiiU <span>planned</span></label>
+                            <label class="planned"><input type="checkbox" value="Nintendo3DS"/> Nintendo3DS <span>planned</span></label>
+                            <label class="planned"><input type="checkbox" value="Switch"/> Switch <span>planned</span></label>
+                            <label class="planned"><input type="checkbox" value="Xbox"/> Xbox <span>planned</span></label>
+                            <label class="planned"><input type="checkbox" value="Dreamcast"/> Dreamcast <span>planned</span></label>
+                            <label class="planned"><input type="checkbox" value="PS2"/> PS2 <span>planned</span></label> -->
+                        </div>
+                        <div class="field">
+                            <label for="project-cmake">CMake version</label>
+                            <input id="project-cmake" value="3.16"/>
+                            <span class="hint">For every platform. The chosen CMake (Setup) is 3.31.2.</span>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Per platform</legend>
+                        <div class="field">
+                            <label for="project-platform">Platform</label>
+                            <select id="project-platform"></select>
+                            <span class="hint">Language, standard and compiler are set for each platform, since not every platform has every language or compiler.</span>
+                        </div>
+                        <div class="field">
+                            <label for="project-language">Language</label>
+                            <div class="inline">
+                                <select id="project-language" aria-label="Language"></select>
+                                <select id="project-standard" aria-label="Standard"></select>
+                            </div>
+                            <span class="hint" id="project-standard-hint"></span>
+                        </div>
+                        <div class="field">
+                            <label for="project-compiler">Compiler</label>
+                            <select id="project-compiler"></select>
+                            <span class="hint" id="project-compiler-hint"></span>
+                        </div>
+                        <div class="field" id="project-flags-field">
+                            <span class="label">Compiler flags</span>
+                            <div class="choices" id="project-flags"></div>
+                            <span class="hint">For the app and RetroFuturaGUI, written as the platform's compiler takes them. A flag the compiler has nothing like isn't offered.</span>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Media and features</legend>
+                        <div class="choices features" id="project-features">
+                            <label><input type="checkbox" value="Video" checked/> Video <span>FFmpeg</span></label>
+                            <label><input type="checkbox" value="Audio" checked/> Audio <span>miniaudio; FFmpeg for Opus, Vorbis</span></label>
+                            <label><input type="checkbox" value="TrackerModules" checked/> Tracker modules <span>libopenmpt: MOD, XM, S3M, IT</span></label>
+                            <label><input type="checkbox" value="Models" checked/> 3D models <span>assimp</span></label>
+                        </div>
+                        <div class="field codec">
+                            <label><input type="checkbox" id="project-codecs"/> Allow codecs that aren't royalty-free</label>
+                            <span class="message">H.264, HEVC, AAC and others. Whoever ships this build takes on their patent licences: keep it to personal or non-commercial use.</span>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Files</legend>
+                        <div class="field">
+                            <label for="project-appsettings">App Settings</label>
+                            <div class="inline">
+                                <input id="project-appsettings" value="Markup/App.bechaml"/>
+                                <button type="button" class="change">Change</button>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="project-startwindow">Start window</label>
+                            <div class="inline">
+                                <input id="project-startwindow" value="Markup/Windows/MainWindow.bechaml"/>
+                                <button type="button" class="change">Change</button>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <span class="label" id="project-assets-label">Assets</span>
+                            <ul class="entries" id="project-assets" aria-labelledby="project-assets-label">
+                                <li>Assets <button type="button" aria-label="Remove Assets">✕</button></li>
+                            </ul>
+                            <button type="button" class="add" id="project-asset-add">+ Folder</button>
+                            <span class="hint">Copied next to the program after every build.</span>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Code</legend>
+                        <div class="field">
+                            <label for="project-removedslots">Removed slots</label>
+                            <select id="project-removedslots">
+                                <option value="CommentOut">Comment out</option>
+                                <option value="Delete">Delete</option>
+                            </select>
+                            <span class="hint">What Generate does with a slot's function in source/code/ once the slot is gone from the .bechaml.</span>
+                        </div>
+                    </fieldset>
+
+                    <div class="form-footer">
+                        <span class="hint" id="project-file-hint">Changes are written to Project.bechaml as you make them; comments and layout stay.</span>
+                        <button type="button" id="project-open-text">Open as text</button>
+                    </div>
+                </form>
+            </div>
+            <div id="App" class="tabcontent">
+                <h3>App</h3>
+                <!-- Opened as a file: fake data. Served by Roux: the App Settings file Project.bechaml names (project.js). Every field edits
+                     the top level for all platforms, a platform's or group's block (<Windows>) otherwise. -->
+                <div class="file-status" id="app-status" hidden></div>
+                <form class="form" id="app-form">
+                    <fieldset>
+                        <legend>Applies to</legend>
+                        <div class="field">
+                            <label for="app-scope">Platforms</label>
+                            <select id="app-scope"></select>
+                            <span class="hint" id="app-scope-hint"></span>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>General</legend>
+                        <div class="field setting" data-keys="appName">
+                            <label for="app-name">App name</label>
+                            <div class="inline">
+                                <input id="app-name" data-key="appName"/>
+                                <button type="button" class="reset">Reset</button>
+                            </div>
+                            <span class="source"></span>
+                        </div>
+                        <div class="field setting" data-keys="fontFamily fontSize fontUnit">
+                            <label for="app-font">Default font</label>
+                            <div class="inline">
+                                <input id="app-font" data-key="fontFamily" aria-label="Font family"/>
+                                <input class="number" data-key="fontSize" aria-label="Font size"/>
+                                <select data-key="fontUnit" aria-label="Font size unit">
+                                    <option>Points</option>
+                                    <option>Pixels</option>
+                                </select>
+                                <button type="button" class="reset">Reset</button>
+                            </div>
+                            <span class="source"></span>
+                        </div>
+                        <div class="field setting" data-keys="transitions">
+                            <label for="app-transitions">Transitions</label>
+                            <div class="inline">
+                                <select id="app-transitions" data-key="transitions">
+                                    <option>Off</option>
+                                    <option>On</option>
+                                </select>
+                                <button type="button" class="reset">Reset</button>
+                            </div>
+                            <span class="source"></span>
+                        </div>
+                        <div class="field setting" data-keys="layoutFile">
+                            <label for="app-layout">Layout file</label>
+                            <div class="inline">
+                                <input id="app-layout" data-key="layoutFile"/>
+                                <button type="button" class="reset">Reset</button>
+                            </div>
+                            <span class="source"></span>
+                            <span class="hint">Where the windows' places and sizes are remembered. Empty: not remembered.</span>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Renderers</legend>
+                        <div class="field setting" data-keys="renderers">
+                            <span class="label">In this order</span>
+                            <div>
+                                <ol class="entries ordered" id="app-renderers"></ol>
+                                <div class="inline">
+                                    <select id="app-renderer-add" aria-label="Renderer to add"></select>
+                                    <button type="button" id="app-renderer-add-button">+ Renderer</button>
+                                    <button type="button" class="reset">Reset</button>
+                                </div>
+                            </div>
+                            <span class="source"></span>
+                            <span class="hint">The first one that starts is used. Only renderers built into the program can start.</span>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Requirements</legend>
+                        <div class="field setting" data-keys="requires">
+                            <span class="label">The app needs</span>
+                            <div class="choices" id="app-requires">
+                                <label><input type="checkbox" value="MultiWindow"/> Several windows</label>
+                                <label><input type="checkbox" value="FileSystem"/> File system</label>
+                                <label><input type="checkbox" value="Mouse"/> Mouse</label>
+                                <label><input type="checkbox" value="Keyboard"/> Keyboard</label>
+                                <label><input type="checkbox" value="Touch"/> Touch</label>
+                                <label><input type="checkbox" value="Gamepad"/> Gamepad</label>
+                            </div>
+                            <span class="source"></span>
+                            <button type="button" class="reset">Reset</button>
+                        </div>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Character sets</legend>
+                        <span class="hint">The Unicode blocks are the same everywhere. The font that supplies them can differ per platform, since the fonts that ship differ.</span>
+                        <div id="app-charsets"></div>
+                        <button type="button" class="add" id="app-charset-add">+ Character set</button>
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Checks</legend>
+                        <ul class="warnings" id="app-warnings"></ul>
+                    </fieldset>
+
+                    <div class="form-footer">
+                        <span class="hint" id="app-file-hint">Changes are written to Markup/App.bechaml as you make them; comments and layout stay.</span>
+                        <button type="button" id="app-open-text">Open as text</button>
+                    </div>
+                </form>
+            </div>
+            <div id="Build" class="tabcontent">
+                <h3>Build</h3>
+                <!-- Mockup: fake output. Platform and build type are written to Project.user.bechaml. -->
+                <form class="form" id="build-form">
+                    <fieldset>
+                        <legend>Target</legend>
+                        <div class="field">
+                            <label for="build-platform">Platform</label>
+                            <select id="build-platform"></select>
+                        </div>
+                        <div class="field">
+                            <label for="build-type">Build type</label>
+                            <select id="build-type">
+                                <option>Debug</option>
+                                <option>Release</option>
+                                <option>RelWithDebInfo</option>
+                                <option>MinSizeRel</option>
+                            </select>
+                            <span class="hint" id="build-target-hint"></span>
+                        </div>
+                    </fieldset>
+
+                    <div class="build-actions">
+                        <button type="button" data-steps="generate">Generate</button>
+                        <button type="button" data-steps="configure">Configure</button>
+                        <button type="button" data-steps="build">Build</button>
+                        <button type="button" data-steps="run">Run</button>
+                        <button type="button" class="primary" data-steps="generate configure build run">▶ Build &amp; Run</button>
+                        <button type="button" id="build-stop" disabled>Stop</button>
+                        <button type="button" id="build-clean">Clean</button>
+                    </div>
+
+                    <ol class="steps" id="build-steps"></ol>
+
+                    <fieldset>
+                        <legend id="build-log-title">Output</legend>
+                        <pre class="log" id="build-log" aria-live="polite"></pre>
+                        <span class="hint" id="build-log-note"></span>
+                    </fieldset>
+
+                    <label class="mockup-option"><input type="checkbox" id="build-fail"/> Mockup only: make the build fail</label>
+                </form>
+            </div>
+        </div>
+    </body>
+</html>
