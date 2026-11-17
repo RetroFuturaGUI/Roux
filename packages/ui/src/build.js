@@ -9,17 +9,17 @@ let servedTarget = null;
 const lineDelay = 40; //milliseconds between two lines.
 
 //How a platform is configured: its toolchain (vcpkg's triplet on desktop, devkitPro's CMake files on its consoles), what
-//runs the program, and whether the build goes through WSL when Roux runs on Windows (proposed).
+//runs the program ({folder} and {name} are filled in), and whether the build goes through WSL when Roux runs on Windows (proposed).
 const buildTargets =
 {
-    "Windows": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows", run: "{folder}/TestProject.exe", environment: "Using the Visual Studio 2022 environment (vcvars64, cached)" },
-    "Linux": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-linux", run: "{folder}/TestProject", environment: "Building in WSL (Ubuntu 24.04)", throughWsl: true },
-    "macOS": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=arm64-osx", run: "{folder}/TestProject.app", unavailable: "macOS builds only on a Mac" },
-    "Android": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake", run: "adb install {folder}/TestProject.apk" },
-    "GameCube, Wii": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/Wii.cmake", run: "wiiload {folder}/TestProject.dol" },
-    "WiiU": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/WiiU.cmake", run: "wiiload {folder}/TestProject.rpx" },
-    "Nintendo3DS": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake", run: "3dslink {folder}/TestProject.3dsx" },
-    "Switch": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/Switch.cmake", run: "nxlink {folder}/TestProject.nro" },
+    "Windows": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows", run: "{folder}/{name}.exe", environment: "Using the Visual Studio 2022 environment (vcvars64, cached)" },
+    "Linux": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-linux", run: "{folder}/{name}", environment: "Building in WSL (Ubuntu 24.04)", throughWsl: true },
+    "macOS": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=arm64-osx", run: "{folder}/{name}.app", unavailable: "macOS builds only on a Mac" },
+    "Android": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake", run: "adb install {folder}/{name}.apk" },
+    "GameCube, Wii": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/Wii.cmake", run: "wiiload {folder}/{name}.dol" },
+    "WiiU": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/WiiU.cmake", run: "wiiload {folder}/{name}.rpx" },
+    "Nintendo3DS": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake", run: "3dslink {folder}/{name}.3dsx" },
+    "Switch": { toolchain: "-DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/Switch.cmake", run: "nxlink {folder}/{name}.nro" },
     "Xbox": { toolchain: "(Microsoft GDK toolchain)", run: "(deploy to the console)" },
     "Dreamcast": { toolchain: "(KallistiOS toolchain)", run: "(send to the console or an emulator)" },
     "PS2": { toolchain: "(ps2sdk toolchain)", run: "(send to the console or an emulator)" }
@@ -142,13 +142,13 @@ function stepLines(id)
         return lines.concat([
             "[4/24] Building CXX object source/code/MainScene.cpp",
             "...",
-            "[24/24] Linking CXX executable TestProject",
+            "[24/24] Linking CXX executable " + document.getElementById("project-name").value,
             { summary: "24 of 24, no warnings" }
         ]);
     }
 
     const command = ("C++" == target.language || "C" == target.language)
-        ? settings.run.replace("{folder}", folder)
+        ? settings.run.replace("{folder}", folder).replace("{name}", document.getElementById("project-name").value)
         : { "C#": "dotnet run --project source/code/CSharpProject", "Python": "python source/code/Python/MainWindow.py", "Rust": "cargo run --manifest-path source/code/RustProject/Cargo.toml" }[target.language];
 
     return [

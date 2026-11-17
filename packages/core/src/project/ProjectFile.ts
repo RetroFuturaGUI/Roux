@@ -83,7 +83,7 @@ export function readProject(document: Document): { values: ProjectValues; proble
 
     const values: ProjectValues =
     {
-        name: text("name", "\"TestProject\""),
+        name: text("name", "\"MyApp\""),
         identifier: text("identifier", "\"com.example.app\""),
         version: text("version", "\"0.1.0\""),
         cmakeVersion: text("cmakeVersion", "\"3.16\""),
@@ -94,7 +94,7 @@ export function readProject(document: Document): { values: ProjectValues; proble
         appSettings: text("appSettings", "\"App/App.bechaml\""),
         startWindow: text("startWindow", "\"source/code/Windows/MainWindow.bechaml\""),
         assets: list("assets", "{ \"Assets\" }"),
-        authors: list("authors", "{ \"Lawn Meower\" }"),
+        authors: list("authors", "{ \"Your Name\" }"),
         license: text("license", "\"Proprietary\""),
         removedSlots: "Delete" === removedSlots ? "Delete" : "CommentOut"
     };

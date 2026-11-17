@@ -5,7 +5,7 @@ import type { RegionContent } from "./CMakeRegions.js";
 
 export const projectCMakePath = "source/generated/Project.cmake";
 
-//The value TestProject's CMakeLists.txt takes in LANG for the steps after a binding's library is built.
+//The value the project's CMakeLists.txt takes in LANG for the steps after a binding's library is built.
 const bindingLanguages: Record<string, string> = { "C#": "CSharp", "Python": "Python", "Rust": "Rust" };
 
 //What Generate found in the project's folders, relative to it with /.

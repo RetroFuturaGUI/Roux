@@ -26,7 +26,7 @@ test("reads errors and warnings with the file they name", () =>
     assert.deepEqual(readLogLine("CMake Error at CMakeLists.txt:19 (message):", folder).location, { file: path.join(folder, "CMakeLists.txt"), line: 19, column: 1 });
     assert.equal(readLogLine("CMake Warning (dev) at RetroFuturaGUI/CMakeLists.txt:5 (find_package):", folder).severity, "warning");
     assert.equal(readLogLine("ninja: build stopped: subcommand failed.", folder).severity, "error");
-    assert.equal(readLogLine("LINK : fatal error LNK1168: cannot open TestProject.exe for writing", folder).severity, "error");
+    assert.equal(readLogLine("LINK : fatal error LNK1168: cannot open MyApp.exe for writing", folder).severity, "error");
     assert.equal(readLogLine("[12/185] Building CXX object source\\code\\MainScene.cpp.obj", folder).severity, "");
     assert.equal(readLogLine("See https://example.com/a(1): error-free", folder).severity, "");
     assert.equal(problemSummary(1, 2), "1 error, 2 warnings");
@@ -75,12 +75,12 @@ test("finds the program to run in CMake's file API reply", async () =>
         mkdirSync(reply, { recursive: true });
         const write = (name: string, value: unknown) => writeFileSync(path.join(reply, name), JSON.stringify(value));
         write("index-2026-11-15T10-00-00-0000.json", { reply: { "client-roux": { "codemodel-v2": { jsonFile: "codemodel-v2-1.json" } } } });
-        write("codemodel-v2-1.json", { configurations: [{ projects: [{ name: "TestProject" }], targets: [{ name: "Helper", jsonFile: "target-helper.json" }, { name: "RetroFuturaGUI", jsonFile: "target-library.json" }, { name: "TestProject", jsonFile: "target-app.json" }] }] });
+        write("codemodel-v2-1.json", { configurations: [{ projects: [{ name: "MyApp" }], targets: [{ name: "Helper", jsonFile: "target-helper.json" }, { name: "RetroFuturaGUI", jsonFile: "target-library.json" }, { name: "MyApp", jsonFile: "target-app.json" }] }] });
         write("target-helper.json", { type: "EXECUTABLE", artifacts: [{ path: "RetroFuturaGUI/Helper.exe" }], paths: { source: "RetroFuturaGUI" } });
         write("target-library.json", { type: "STATIC_LIBRARY", artifacts: [{ path: "RetroFuturaGUI/RetroFuturaGUI.lib" }], paths: { source: "RetroFuturaGUI" } });
-        write("target-app.json", { type: "EXECUTABLE", artifacts: [{ path: "TestProject.exe" }, { path: "TestProject.pdb" }], paths: { source: "." } });
+        write("target-app.json", { type: "EXECUTABLE", artifacts: [{ path: "MyApp.exe" }, { path: "MyApp.pdb" }], paths: { source: "." } });
 
-        assert.deepEqual(await findExecutable(build), { name: "TestProject", file: path.join(build, "TestProject.exe") });
+        assert.deepEqual(await findExecutable(build), { name: "MyApp", file: path.join(build, "MyApp.exe") });
     }
     finally
     {

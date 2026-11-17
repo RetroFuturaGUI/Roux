@@ -12,19 +12,19 @@ test("reads the plan's Project.bechaml into the Project tab's values", () =>
     const { values, problems } = readProject(parseBechaml(fixture("Project.bechaml")));
 
     assert.deepEqual(problems, []);
-    assert.equal(values.name, "TestProject");
+    assert.equal(values.name, "MyApp");
     assert.equal(values.cmakeVersion, "3.16");
     assert.deepEqual(values.platforms, ["Windows", "Linux", "Wii"]);
     assert.deepEqual(values.platformSettings.Wii, { language: "C", standard: "99", compiler: "devkitPPC", compilerFlags: [] });
     assert.equal(values.allowNonRoyaltyFreeCodecs, false);
-    assert.deepEqual(values.authors, ["Lawn Meower"]);
+    assert.deepEqual(values.authors, ["Your Name"]);
     assert.equal(values.removedSlots, "CommentOut");
 });
 
 test("reports values of the wrong kind where they are", () =>
 {
     const { problems } = readProject(parseBechaml("<Project>\n    <Name>5</Name>\n    <Platforms>\"Windows\"</Platforms>\n</Project>"));
-    assert.deepEqual(problems.map(problem => problem.message), ["<Name> holds a string, such as \"TestProject\".", "<Platforms> holds a list of strings, such as { \"Windows\" }."]);
+    assert.deepEqual(problems.map(problem => problem.message), ["<Name> holds a string, such as \"MyApp\".", "<Platforms> holds a list of strings, such as { \"Windows\" }."]);
 
     const wrongRoot = readProject(parseBechaml("<Scene/>"));
     assert.equal(wrongRoot.problems[0]?.message, "Project.bechaml's root element is <Project>, not <Scene>.");

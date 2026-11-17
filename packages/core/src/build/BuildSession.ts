@@ -33,7 +33,7 @@ interface StepCounts
 
 type Emit = <E extends "build.changed" | "build.log">(event: E, params: Events[E]) => void;
 
-//The value TestProject's CMakeLists.txt takes in LANG to build the shared library a language's binding loads
+//The value the project's CMakeLists.txt takes in LANG to build the shared library a language's binding loads
 const languageOptions: Record<string, string> = { "C#": "CSharp", "Python": "Python", "Rust": "Rust" };
 
 //Lines kept per step; a long build's oldest go first

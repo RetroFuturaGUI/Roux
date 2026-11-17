@@ -1,6 +1,6 @@
 <Project>
-    <Name>"TestProject"</Name>                            <!-- binary and CMake name; may differ from the app name -->
-    <Identifier>"me.lawnmeower.testproject"</Identifier>  <!-- proposed: packaging for Android, macOS, consoles -->
+    <Name>"MyApp"</Name>                                  <!-- binary and CMake name; may differ from the app name -->
+    <Identifier>"com.example.myapp"</Identifier>          <!-- proposed: packaging for Android, macOS, consoles -->
     <Version>"0.1.0"</Version>
     <CMakeVersion>"3.16"</CMakeVersion>
     <Platforms>{ "Windows", "Linux", "Wii" }</Platforms>
@@ -22,7 +22,7 @@
     <AppSettings>"App/App.bechaml"</AppSettings>
     <StartWindow>"source/code/Windows/MainWindow.bechaml"</StartWindow>      <!-- proposed -->
     <Assets>{ "Assets", "extern/SharedAssets" }</Assets>   <!-- the project's asset folders, in lookup order -->
-    <Authors>{ "Lawn Meower" }</Authors>                   <!-- proposed -->
+    <Authors>{ "Your Name" }</Authors>                     <!-- proposed -->
     <License>"Proprietary"</License>                       <!-- proposed -->
     <RemovedSlots>"CommentOut"</RemovedSlots>              <!-- or "Delete" -->
 </Project>

@@ -120,14 +120,14 @@ Rebuilt for other projects: none</pre>
                         <legend>Identity</legend>
                         <div class="field">
                             <label for="project-name">Name</label>
-                            <input id="project-name" value="TestProject"
+                            <input id="project-name" value="MyApp"
                                    data-pattern="^[A-Za-z_][A-Za-z0-9_]*$"
                                    data-message="Letters, digits and _ only, not starting with a digit."/>
                             <span class="hint">The binary and the CMake project: letters, digits and _ only. May differ from the app name.</span>
                         </div>
                         <div class="field">
                             <label for="project-identifier">Identifier</label>
-                            <input id="project-identifier" value="me.lawnmeower.testproject"
+                            <input id="project-identifier" value="com.example.myapp"
                                    data-pattern="^([a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+)?$"
                                    data-message="Reverse domain with at least two parts, in lower case: com.example.app"/>
                             <span class="hint">Reverse domain, for packaging on Android, macOS and consoles. Empty until it's needed.</span>
@@ -141,7 +141,7 @@ Rebuilt for other projects: none</pre>
                         <div class="field">
                             <span class="label" id="project-authors-label">Authors</span>
                             <ul class="entries" id="project-authors" aria-labelledby="project-authors-label">
-                                <li>Lawn Meower <button type="button" aria-label="Remove Lawn Meower">✕</button></li>
+                                <li>Your Name <button type="button" aria-label="Remove Your Name">✕</button></li>
                             </ul>
                             <button type="button" class="add" id="project-author-add">+ Author</button>
                         </div>

@@ -75,11 +75,11 @@ test("creates the project's files, edits them and reports only outside changes",
         writeFileSync(file, "<Project>\n    <Name>5</Name>\n</Project>\n");
         const broken = await nextChange(changes, 5000);
         assert.equal(broken?.project.values, undefined);
-        assert.deepEqual(broken?.project.problems, [{ line: 2, column: 11, message: "<Name> holds a string, such as \"TestProject\"." }]);
+        assert.deepEqual(broken?.project.problems, [{ line: 2, column: 11, message: "<Name> holds a string, such as \"MyApp\"." }]);
 
         const blocked = await session.editProject({ key: "version", value: "3.0.0" });
         assert.equal(blocked.isWritten, false);
-        assert.equal(blocked.message, "Project.bechaml can't be edited: line 2: <Name> holds a string, such as \"TestProject\".");
+        assert.equal(blocked.message, "Project.bechaml can't be edited: line 2: <Name> holds a string, such as \"MyApp\".");
     }
     finally
     {
