@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import { readdir, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { createInterface } from "node:readline";
 import path from "node:path";
 import { Core, currentEnvironment, findClang, findProjectFolder, generateProject, makeSchema } from "@retrofuturagui/roux-core";
 import { checkPaths } from "./Check.js";
@@ -14,6 +15,8 @@ Commands:
                                         Opens Roux in the browser, on this computer only. The project is the
                                         nearest folder up with a Project.bechaml, else with a CMakeLists.txt.
                                         --vscode: for VS Code's Simple Browser instead, until the extension exists
+  core --stdio [--project <folder>]      The core alone, for an IDE plugin: one JSON-RPC message per line on stdin, its
+                                        answers and events, one per line, on stdout
   check [<file or folder>...]           Reports the errors in .bechaml files (in the current folder when none is named)
   generate [--project <folder>]         Writes source/generated/Project.cmake and Roux's regions in CMakeLists.txt
                                         from Project.bechaml (the scenes' C++ comes later)
@@ -31,6 +34,8 @@ async function main(args: string[]): Promise<number>
     {
         case "serve":
             return serve(options);
+        case "core":
+            return coreOverStdio(options);
         case "check":
             return check(options);
         case "generate":
@@ -50,6 +55,56 @@ async function main(args: string[]): Promise<number>
             console.error("Unknown command " + command + ".\n\n" + usage);
             return 1;
     }
+}
+
+//An IDE plugin that can't load Node code, such as JetBrains', starts the core this way. Every line on stdin is one JSON-RPC
+//message; every answer and event goes to stdout as one line. Diagnostics go to stderr, so stdout carries only messages.
+async function coreOverStdio(options: string[]): Promise<number>
+{
+    let projectFolder: string | undefined;
+    let isStdio = false;
+
+    for (let index = 0; options.length > index; ++index)
+    {
+        if ("--stdio" === options[index])
+            isStdio = true;
+        else if ("--project" === options[index])
+            projectFolder = options[++index];
+        else
+        {
+            console.error("Unknown option " + options[index] + ".\n\n" + usage);
+            return 1;
+        }
+    }
+
+    if (!isStdio)
+    {
+        console.error("roux core needs --stdio, the only way it talks so far.");
+        return 1;
+    }
+
+    const folder = await findProjectFolder(projectFolder ?? process.cwd());
+    const core = new Core(undefined, { projectFolder: folder });
+    const write = (message: unknown) => process.stdout.write(JSON.stringify(message) + "\n");
+    core.server.addEventSink(write);
+
+    const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+    for await (const line of lines)
+    {
+        if ("" === line.trim())
+            continue;
+
+        //Each request is answered when it ends; a long one, such as a build, doesn't hold up the others.
+        void core.server.handleText(line).then(answer =>
+        {
+            if (answer)
+                write(answer);
+        });
+    }
+
+    core.close();
+    return 0;
 }
 
 async function serve(options: string[]): Promise<number>

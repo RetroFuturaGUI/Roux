@@ -1,0 +1,24 @@
+<idea-plugin>
+    <id>org.retrofuturagui.roux</id>
+    <name>Roux</name>
+    <vendor>RetroFuturaGUI</vendor>
+    <description><![CDATA[
+        The .bechaml config tool and RetroFuturaGUI project setup: checks the computer, edits the project's settings,
+        generates the C++ from .bechaml files, and builds and runs the app, in an editor tab.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.jcef</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileEditorProvider implementation="org.retrofuturagui.roux.RouxEditorProvider"/>
+    </extensions>
+
+    <actions>
+        <action id="Roux.Open" class="org.retrofuturagui.roux.OpenRouxAction" text="Roux"
+                description="Opens Roux in an editor tab" icon="AllIcons.Toolwindows.ToolWindowBuild">
+            <add-to-group group-id="ToolsMenu" anchor="first"/>
+            <add-to-group group-id="MainToolbarRight" anchor="first"/>
+        </action>
+    </actions>
+</idea-plugin>

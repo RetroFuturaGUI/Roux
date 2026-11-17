@@ -58,3 +58,4 @@ it, Simple Browser shows a refused page.
 | `packages/ui/src` | The webview UI, plain HTML, CSS and JavaScript. It talks to the core only through `HostBridge` (`bridge.js`). Opened as a file, it is the mockup with fake data |
 | `cli` | `roux check \| generate \| build \| run \| serve`; `check`, `generate` and `serve` exist so far |
 | `hosts/vscode` | The VS Code extension. `npm run package` there writes the `.vsix` for a release; raise its `version` first |
+| `hosts/jetbrains` | The JetBrains plugin (Kotlin, Gradle). It starts the core as `roux core --stdio` with Node, and finds Roux as the project's `Roux/` submodule for now. Name an installed IDE in `local.properties` (`rouxIde=C:/Program Files/JetBrains/CLion 2026.3.0.1`) and set `JAVA_HOME` to its `jbr` folder; then `gradlew buildPlugin` writes `build/distributions/roux-jetbrains-<version>.zip`, and `gradlew runIde` tries it in a sandbox of that IDE |
