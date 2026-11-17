@@ -34,6 +34,11 @@ The page's address carries a key that unlocks it, so open Roux through the start
 
 Needs Node 22 or newer.
 
+`BuildRoux.cmd` (Windows) and `./BuildRoux.sh` (Linux, macOS) build everything at once: Roux itself, which is all the
+web version needs, then the VS Code extension's `.vsix` and the JetBrains plugin's `.zip`, both copied to `dist/`. The
+JetBrains plugin is skipped unless `hosts/jetbrains/local.properties` names an installed JetBrains IDE (see the table
+below); its Java comes from `JAVA_HOME`, else from that IDE's own runtime.
+
 ```
 npm install
 npm run serve         builds, then opens Roux in the browser (roux serve)
