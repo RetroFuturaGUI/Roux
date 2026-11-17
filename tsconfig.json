@@ -4,6 +4,7 @@
     [
         { "path": "packages/protocol" },
         { "path": "packages/core" },
-        { "path": "cli" }
+        { "path": "cli" },
+        { "path": "hosts/vscode" }
     ]
 }

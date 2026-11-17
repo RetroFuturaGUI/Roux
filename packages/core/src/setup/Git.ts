@@ -9,6 +9,7 @@ import { visualStudioInstallations } from "./VisualStudio.js";
 
 //What a RetroFuturaGUI project needs checked out, relative to the project's folder
 export const requiredSubmodules = ["RetroFuturaGUI", "RetroFuturaGUI/PlatformBridge"];
+export const retroFuturaGuiUrl = "https://github.com/RetroFuturaGUI/RetroFuturaGUI";
 
 export async function findGit(environment: MachineEnvironment, chosenPath?: string): Promise<Check>
 {
@@ -87,10 +88,14 @@ export async function checkSubmodules(git: string | undefined, folder: string | 
     {
         const missing = requiredSubmodules.filter(submodule => !hasFiles(path.join(folder, submodule)));
 
-        if (0 < missing.length)
-            return fixes.check({ component: component, status: "error", detail: missing.join(", ") + " missing, and the project isn't a Git repository to fetch them", installations: [], chosenIndex: -1 });
+        if (0 === missing.length)
+            return fixes.check({ component: component, status: "ok", detail: names + " (the project isn't a Git repository)", installations: [], chosenIndex: -1 });
 
-        return fixes.check({ component: component, status: "ok", detail: names + " (the project isn't a Git repository)", installations: [], chosenIndex: -1 });
+        if (!git)
+            return fixes.check({ component: component, status: "error", detail: missing.join(", ") + " missing; Git is needed to fetch them", installations: [], chosenIndex: -1 });
+
+        fixes.terminal("Set up", addRetroFuturaGuiCommand(git, false), folder);
+        return fixes.check({ component: component, status: "error", detail: missing.join(", ") + " missing; Set up makes the project a Git repository and adds them", installations: [], chosenIndex: -1 });
     }
 
     if (!git)
@@ -107,6 +112,14 @@ export async function checkSubmodules(git: string | undefined, folder: string | 
 export function submoduleCheck(states: Map<string, SubmoduleState>, git: string, folder: string, fixes: FixList): Check
 {
     const component = "Submodules";
+
+    //Not a submodule of the project at all, as in a new one: added with PlatformBridge inside it
+    if (!states.has(requiredSubmodules[0]) && !hasFiles(path.join(folder, requiredSubmodules[0])))
+    {
+        fixes.terminal("Add RetroFuturaGUI", addRetroFuturaGuiCommand(git, true), folder);
+        return fixes.check({ component: component, status: "error", detail: "RetroFuturaGUI isn't part of the project yet", installations: [], chosenIndex: -1 });
+    }
+
     const stateOf = (submodule: string) => states.get(submodule) ?? (hasFiles(path.join(folder, submodule)) ? "ok" : "uninitialized");
     const uninitialized = requiredSubmodules.filter(submodule => "uninitialized" === stateOf(submodule));
     const conflicts = requiredSubmodules.filter(submodule => "conflict" === stateOf(submodule));
@@ -122,7 +135,27 @@ export function submoduleCheck(states: Map<string, SubmoduleState>, git: string,
     }
 
     const note = 0 < otherCommits.length ? "; " + otherCommits.map(submodule => path.basename(submodule)).join(", ") + " at another commit than the project records, as while working on it" : "";
+
+    //Only offered at the recorded commits: while working on RetroFuturaGUI, an update would leave its branch for the remote's commit
+    if (0 === otherCommits.length)
+        fixes.terminal("Update", updateRetroFuturaGuiCommand(git), folder);
+
     return fixes.check({ component: component, status: "ok", detail: requiredSubmodules.map(submodule => path.basename(submodule)).join(", ") + note, installations: [], chosenIndex: -1 });
+}
+
+//Adds RetroFuturaGUI as a submodule and checks out PlatformBridge inside it; a folder that isn't a repository becomes one first
+function addRetroFuturaGuiCommand(git: string, isRepository: boolean): string
+{
+    const add = [commandLine(git, ["submodule", "add", retroFuturaGuiUrl, requiredSubmodules[0]]), commandLine(git, ["submodule", "update", "--init", "--recursive"])];
+    return (isRepository ? add : [commandLine(git, ["init"]), ...add]).join(" && ");
+}
+
+//Moves RetroFuturaGUI to the newest commit of its remote, then its own submodules to the commits that commit records, so
+//PlatformBridge always matches the RetroFuturaGUI it came with. The project then records the new commit once it's committed
+function updateRetroFuturaGuiCommand(git: string): string
+{
+    return [commandLine(git, ["submodule", "update", "--init", "--remote", requiredSubmodules[0]]),
+            commandLine(git, ["-C", requiredSubmodules[0], "submodule", "update", "--init", "--recursive"])].join(" && ");
 }
 
 function hasFiles(folder: string): boolean

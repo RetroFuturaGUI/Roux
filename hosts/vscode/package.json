@@ -1,0 +1,55 @@
+{
+    "name": "roux-vscode",
+    "displayName": "Roux",
+    "description": "The .bechaml config tool and RetroFuturaGUI project setup, as a panel in VS Code",
+    "version": "0.0.1",
+    "private": true,
+    "publisher": "retrofuturagui",
+    "type": "commonjs",
+    "main": "./out/extension.js",
+    "engines":
+    {
+        "vscode": "^1.105.0"
+    },
+    "activationEvents":
+    [
+        "workspaceContains:Project.bechaml",
+        "onStartupFinished"
+    ],
+    "contributes":
+    {
+        "commands":
+        [
+            {
+                "command": "roux.openPanel",
+                "title": "Open Panel",
+                "category": "Roux",
+                "icon": "$(flame)"
+            }
+        ],
+        "menus":
+        {
+            "editor/title":
+            [
+                {
+                    "command": "roux.openPanel",
+                    "group": "navigation",
+                    "when": "roux.isActive && activeWebviewPanelId != 'roux'"
+                }
+            ]
+        }
+    },
+    "scripts":
+    {
+        "package": "node scripts/vsix.mjs"
+    },
+    "dependencies":
+    {
+        "@retrofuturagui/roux-core": "*",
+        "@retrofuturagui/roux-ui": "*"
+    },
+    "devDependencies":
+    {
+        "@types/vscode": "1.105.0"
+    }
+}

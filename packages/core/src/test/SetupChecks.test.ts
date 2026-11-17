@@ -44,6 +44,23 @@ test("reads the submodules' states and offers to fetch the missing ones", () =>
     const working = submoduleCheck(new Map([["RetroFuturaGUI", "otherCommit"], ["RetroFuturaGUI/PlatformBridge", "ok"]]), "git", "C:\\Project", new FixList());
     assert.equal(working.result.status, "ok");
     assert.match(working.result.detail, /RetroFuturaGUI at another commit/);
+    assert.deepEqual(working.result.fixes, [], "no Update while working on RetroFuturaGUI");
+});
+
+test("adds RetroFuturaGUI to a project without it, and updates it with its submodules", () =>
+{
+    const added = submoduleCheck(new Map(), "git", "C:\\NoSuchProject", new FixList());
+    assert.equal(added.result.status, "error");
+    assert.deepEqual(added.runs.get("add-retrofuturagui"),
+    {
+        kind: "terminal",
+        commandLine: "git submodule add https://github.com/RetroFuturaGUI/RetroFuturaGUI RetroFuturaGUI && git submodule update --init --recursive",
+        cwd: "C:\\NoSuchProject"
+    });
+
+    const current = submoduleCheck(new Map([["RetroFuturaGUI", "ok"], ["RetroFuturaGUI/PlatformBridge", "ok"]]), "git", "C:\\Project", new FixList());
+    assert.equal(current.result.status, "ok");
+    assert.equal(current.result.fixes[0]?.command, "git submodule update --init --remote RetroFuturaGUI && git -C RetroFuturaGUI submodule update --init --recursive");
 });
 
 test("reads vcpkg's database, the later paragraph winning", () =>

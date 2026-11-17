@@ -1,19 +1,51 @@
 //The UI's only way to the core: request(method, params) resolves with the method's result, onEvent(name, handler)
 //receives the core's events. In the browser it talks to roux serve: requests are POSTed to /rpc, events come from /events.
-//The IDE shells will carry the same JSON-RPC messages over their own channels.
+//In VS Code's webview the same JSON-RPC messages go through postMessage.
 const HostBridge = (() =>
 {
     const eventHandlers = new Map();
+    const pendingAnswers = new Map();
     let nextId = 1;
 
-    //Opened from the file itself, as the mockup is, the page has no core to reach and keeps its fake data.
-    const isAvailable = "http:" === location.protocol || "https:" === location.protocol;
+    //acquireVsCodeApi may be called only once per page
+    const vscode = "function" === typeof acquireVsCodeApi ? acquireVsCodeApi() : undefined;
+
+    //Opened from the file itself, as the mockup is, the page has no core to reach and keeps its fake data
+    const isAvailable = undefined !== vscode || "http:" === location.protocol || "https:" === location.protocol;
+
+    function dispatchEvent(notification)
+    {
+        for (const handler of eventHandlers.get(notification.method) ?? [])
+            handler(notification.params);
+    }
+
+    //In VS Code an answer carries its request's id, and an event has none
+    if (vscode)
+    {
+        window.addEventListener("message", message =>
+        {
+            const data = message.data;
+
+            if (!data || "2.0" !== data.jsonrpc)
+                return;
+
+            if (undefined === data.id)
+            {
+                dispatchEvent(data);
+                return;
+            }
+
+            const pending = pendingAnswers.get(data.id);
+            pendingAnswers.delete(data.id);
+            pending?.(data);
+        });
+    }
 
     //Resolves once the event stream is open, so no event of the first request is missed. Also when it can't open, so
-    //requests still go through.
+    //requests still go through. VS Code's events flow as soon as the page runs
     const ready = new Promise(resolve =>
     {
-        if (!isAvailable)
+        if (!isAvailable || vscode)
         {
             resolve();
             return;
@@ -35,8 +67,7 @@ const HostBridge = (() =>
                 return;
             }
 
-            for (const handler of eventHandlers.get(notification.method) ?? [])
-                handler(notification.params);
+            dispatchEvent(notification);
         });
     });
 
@@ -44,6 +75,21 @@ const HostBridge = (() =>
     {
         if (!isAvailable)
             throw new Error("There is no core: the page was opened as a file.");
+
+        if (vscode)
+        {
+            const id = nextId++;
+            const answer = await new Promise(resolve =>
+            {
+                pendingAnswers.set(id, resolve);
+                vscode.postMessage({ jsonrpc: "2.0", id: id, method: method, params: params });
+            });
+
+            if (answer.error)
+                throw new Error(answer.error.message);
+
+            return answer.result;
+        }
 
         const response = await fetch("/rpc",
         {
