@@ -19,11 +19,13 @@ Since VS Code doesn't update it by itself, install a newer release the same way.
 
 Without VS Code, Roux runs as a small local server that only your computer can reach and opens in your browser. It requires [Node](https://nodejs.org) 22 or newer.
 
-- **Windows:** double-click `Roux.cmd` in the project's folder (beside `Project.bechaml`). The first start installs and
-  builds Roux, which takes a minute. The browser opens by itself; the window that stays open is Roux, and closing it
-  stops Roux.
-<!-- - **macOS:** double-click `Roux.command` beside it, which opens in Terminal. Closing that window stops Roux. -->
-- **Linux:** run `./Roux.sh` from the project's folder. File managers that run scripts, such as Dolphin, start it with a double-click too. GNOME Files doesn't by default
+The scripts below lie in Roux's folder. Given a folder, they open that project; without one, they open the project Roux
+lies in, as when Roux is a project's submodule. The first start installs and builds Roux, which takes a minute
+
+- **Windows:** drag the project's folder onto `Roux.cmd`, or double-click it. The browser opens by itself; the window
+  that stays open is Roux, and closing it stops Roux
+<!-- - **macOS:** double-click `Roux.command`, which opens in Terminal, or run `./Roux.command <project folder>`. Closing that window stops Roux. -->
+- **Linux:** run `./Roux.sh <project folder>`. File managers that run scripts, such as Dolphin, start it with a double-click too. GNOME Files doesn't by default
 - **Anywhere:** in a terminal, `npm install` once in the `Roux` folder, then `npm run serve -- --project <project folder>`
 
 The page's address carries a key that unlocks it, so open Roux through the started window or the printed address, not a bookmark
