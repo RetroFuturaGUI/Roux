@@ -223,6 +223,33 @@ export interface BuildState
     isRunning: boolean;
 }
 
+//A picture in an asset folder, as the Assets tab shows it
+export interface AssetFile
+{
+    path: string;      //inside its folder, with /: "Images/Logo.png"
+    size: number;      //in bytes
+    modified: number;  //when it was last written, in milliseconds since 1970, so a page knows when its preview is stale
+    reference: string; //how markup names it: Assets.Images.Logo.png, or "Images/My Logo.png" for a name a reference can't hold
+}
+
+//One asset folder: one of the project's, or RetroFuturaGUI's premade Resources.
+export interface AssetSection
+{
+    folder: string;      //relative to the project, with /: "Resources", "RetroFuturaGUI/Resources"
+    isReadOnly: boolean; //RetroFuturaGUI's, which the tab only shows.
+    files: AssetFile[];
+}
+
+export interface AssetList
+{
+    sections: AssetSection[];
+    destination: string;  //where added files go, relative to the project: "Resources/Images". Empty while the project names no asset folder
+    extensions: string[]; //the kinds of file the tab shows and takes: ".png", ".svg"
+}
+
+//What happens to an added file whose name is taken: it replaces the one there, or is saved under a free name ("Logo 2.png")
+export type AssetClash = "replace" | "keepBoth";
+
 //Requests from the UI: method name, its parameters and its result.
 export interface Methods
 {
@@ -239,6 +266,12 @@ export interface Methods
     "build.start": { params: { steps: BuildStep[] }; result: { isStarted: boolean; message: string } }; //runs on; events report it.
     "build.stop": { params: Record<string, never>; result: BuildState };
     "build.clean": { params: Record<string, never>; result: { state: BuildState; message: string } };
+    "assets.list": { params: Record<string, never>; result: AssetList };
+    "assets.preview": { params: { folder: string; path: string }; result: { dataUrl: string } }; //"" for a file a page can't show
+    "assets.clashes": { params: { names: string[] }; result: { clashes: string[] } }; //the names taken in the destination
+    "assets.uploadStart": { params: { name: string; onClash: AssetClash }; result: { uploadId: string; savedAs: string } };
+    "assets.uploadChunk": { params: { uploadId: string; data: string }; result: { received: number } }; //data in base64
+    "assets.uploadEnd": { params: { uploadId: string }; result: { savedAs: string } }; //savedAs relative to the project
 }
 
 //Events from the core: name and parameters.

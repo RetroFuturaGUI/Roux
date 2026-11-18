@@ -91,7 +91,7 @@ async function markupFiles(folder: string): Promise<string[]>
 //The scenes' and windows' files and the start function (Roux plan, 6.2.1): every .bechaml in source/code/ whose root is
 //<Scene> or <Window>, generated with Schema.json, and Start.cpp when Project.bechaml names a start window. Files with
 //another root are other kinds, read by later steps. startWindow is reported at <StartWindow>.
-async function markupOutputs(folder: string, namespace: string, startWindow: string, startWindowMistake: (message: string) => void, problems: GenerateProblem[]): Promise<Map<string, string>>
+async function markupOutputs(folder: string, namespace: string, startWindow: string, assetFolders: readonly string[], startWindowMistake: (message: string) => void, problems: GenerateProblem[]): Promise<Map<string, string>>
 {
     const outputs = new Map<string, string>();
     const scenes: { file: string; text: string; document: Document }[] = [];
@@ -173,7 +173,7 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
         if (!user)
             continue;
 
-        const result = generateScene(scene, { folder: folder, namespace: namespace, schema: schema, sceneNames: new Set(names.keys()), ...user });
+        const result = generateScene(scene, { folder: folder, namespace: namespace, schema: schema, sceneNames: new Set(names.keys()), assetFolders: assetFolders, ...user });
         problems.push(...result.problems);
         result.outputs.forEach((text, file) => outputs.set(file, text));
 
@@ -192,7 +192,7 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
         if (!user)
             continue;
 
-        const result = generateWindow(window, { folder: folder, namespace: namespace, schema: schema, scenes: loads, ...user });
+        const result = generateWindow(window, { folder: folder, namespace: namespace, schema: schema, scenes: loads, assetFolders: assetFolders, ...user });
         problems.push(...result.problems);
         result.outputs.forEach((text, file) => outputs.set(file, text));
 
@@ -290,7 +290,7 @@ export async function generateProject(folder: string): Promise<GenerateResult>
     if (staleSchema)
         problems.push({ file: staleSchema, line: 1, column: 1, severity: "warning", message: "RetroFuturaGUI's headers changed since Schema.json was made: run roux schema." });
 
-    const outputs = await markupOutputs(folder, values.name, values.startWindow, message => at(elementOffset(document, "StartWindow"), "error", message), problems);
+    const outputs = await markupOutputs(folder, values.name, values.startWindow, values.assets, message => at(elementOffset(document, "StartWindow"), "error", message), problems);
     const stale = await staleFiles(folder, outputs);
     const files = await projectFiles(folder, values, [...outputs.keys()], stale);
 

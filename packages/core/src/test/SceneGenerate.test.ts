@@ -57,10 +57,11 @@ async function testSchema(libraryFolder: string): Promise<Schema>
                 {
                     String: [{ call: "SetString", params: [{ name: "string", type: "std::string_view" }, { name: "emitSignal", type: "bool" }] }],
                     FontSize: [{ call: "SetFontSize", params: [{ name: "size", type: "f32" }, { name: "sizeUnit", type: "FontSizeUnit" }], group: ["FontSize", "FontUnit"], defaults: { sizeUnit: "Pixels" } }],
-                    Colors: [colors]
+                    Colors: [colors],
+                    Image: [{ call: "SetImage", params: [{ name: "path", type: "std::string_view" }] }]
                 }
             }),
-            Background: schemaClass("Background", "Widgets/Parts/Background.hpp", "part", { setters: { Colors: [colors], CornerRadii: [{ call: "SetCornerRadii", params: [{ name: "radii", type: "glm::vec4" }] }] } }),
+            Background: schemaClass("Background", "Widgets/Parts/Background.hpp", "part", { setters: { Colors: [colors], CornerRadii: [{ call: "SetCornerRadii", params: [{ name: "radii", type: "glm::vec4" }] }], Image: [{ call: "SetImage", params: [{ name: "imagePath", type: "std::string_view" }] }] } }),
             CellPlacement: schemaClass("CellPlacement", "Widgets/Containers/Lasagna.hpp", "placement", { fields: { Row: { member: "_Row", type: "u32", default: "0" }, Column: { member: "_Column", type: "u32", default: "0" }, SizingMode: { member: "_SizingMode", type: "SizingMode", default: "\"FILL\"" } } }),
             AxisDefinition: schemaClass("AxisDefinition", "Widgets/Containers/Lasagna.hpp", "struct", { fields: { Rows: { member: "_RowDefinition", type: "std::vector<f32>", default: "{ }" }, Columns: { member: "_ColumnDefinition", type: "std::vector<f32>", default: "{ }" } } }),
             "MenuBar::FlexDefinition": schemaClass("MenuBar::FlexDefinition", "Widgets/Containers/MenuBar.hpp", "struct", { fields: { FlexSizing: { member: "_FlexSizing", type: "FlexSizing", default: "\"Fixed\"" }, Width: { member: "_Width", type: "f32", default: "1.0" } } })
@@ -334,6 +335,14 @@ test("generates a window that builds the scenes it lists and swaps them, and the
         assert.ok(read(folder, "source/generated/impl/Windows/AppWindow_p.hpp").includes("    class AppWindow_p : public GeneratedWindow\n"));
         assert.ok(read(folder, "source/code/Windows/AppWindow.hpp").includes("    class AppWindow final : public AppWindow_p\n    {\n    public:\n        AppWindow() = default;\n"));
         assert.ok(read(folder, "source/generated/impl/Windows/GeneratedWindow.cpp").includes("_window->InsertScene(scene->GetScene(), index);"), "a scene that's loaded takes the place of the one that asked");
+        assert.ok(setup.includes("    if(\"MenuScene\" == sceneName)\n"), "the window queues a scene's files by its name");
+        assert.ok(setup.includes("        MenuScene::QueueAssets();\n"));
+        assert.ok(setup.includes("    else if(\"OtherScene\" == sceneName)\n"));
+
+        const base = read(folder, "source/generated/impl/Windows/GeneratedWindow.cpp");
+        assert.ok(base.includes("        if(!areAssetsLoaded(pending._SceneName))\n        {\n            _pendingScenes.push_back(std::move(pending));\n            continue;\n        }\n"), "a scene asked for waits until its files are loaded");
+        assert.ok(base.includes("    _pendingScenes.push_back(PendingScene { ._Requester = &requester, ._SceneName = std::string(sceneName) });\n    queueAssets(sceneName);\n"), "its files are queued when it's asked for");
+        assert.ok(base.includes("    queueAssets(sceneName);\n    std::unique_ptr<GeneratedScene> scene { createScene(sceneName) };\n"), "a start scene's files are queued before it's built");
 
         const start = read(folder, "source/generated/impl/Start.cpp");
         assert.ok(start.includes("#include \"AppWindow.hpp\"\n"));
@@ -381,3 +390,68 @@ function exists(folder: string, relative: string): boolean
         return false;
     }
 }
+
+const fileScene = [
+    "<Scene Name=\"FileScene\">",
+    "    <Lasagna Rows=1 Columns=1>",
+    "        <Button Name=\"Patterned\" Row=0 Column=0>",
+    "            <Text Image=RetroFuturaGUI.Images.Pattern.png/>",
+    "            <Background Image=\"Images/Logo.png\"/>",
+    "        </Button>",
+    "        <Button Name=\"Logo\" Row=0 Column=0>",
+    "            <Background Image=Assets.Images.Logo.png/>",
+    "        </Button>",
+    "    </Lasagna>",
+    "</Scene>",
+    ""].join("\n");
+
+test("finds the files the markup names, by reference or by a path in an asset folder, and queues them for the scene", async () =>
+{
+    const folder = await sceneProject();
+    const projectFile = path.join(folder, "Project.bechaml");
+    const sceneFile = path.join(folder, "source", "code", "Scenes", "FileScene.bechaml");
+
+    try
+    {
+        writeFileSync(projectFile, readFileSync(projectFile, "utf8").replace("<Assets>{ }</Assets>", "<Assets>{ \"Assets\" }</Assets>"));
+        mkdirSync(path.join(folder, "Assets", "Images"), { recursive: true });
+        writeFileSync(path.join(folder, "Assets", "Images", "Logo.png"), "");
+        mkdirSync(path.join(folder, "RetroFuturaGUI", "Resources", "Images"), { recursive: true });
+        writeFileSync(path.join(folder, "RetroFuturaGUI", "Resources", "Images", "Pattern.png"), "");
+        writeFileSync(sceneFile, fileScene);
+
+        const result = await generateProject(folder);
+        assert.deepEqual(result.problems, []);
+
+        const setup = read(folder, "source/generated/impl/Scenes/FileScene_setup.cpp");
+        assert.ok(setup.includes("patterned->GetText().SetImage(\"Resources/Images/Pattern.png\");"), "RetroFuturaGUI's Resources are copied to Resources/");
+        assert.ok(setup.includes("patterned->GetBackground().SetImage(\"Assets/Images/Logo.png\");"), "a path is looked up in the project's asset folders, which are copied to Assets/");
+        assert.ok(setup.includes("logo->GetBackground().SetImage(\"Assets/Images/Logo.png\");"));
+        assert.ok(setup.includes([
+            "void App::FileScene_p::QueueAssets()",
+            "{",
+            "    const u32 sceneID { RetroFuturaGUI::SceneLoader::GetSceneID(\"FileScene\") };",
+            "    RetroFuturaGUI::SceneLoader::AddAsset(sceneID, \"Resources/Images/Pattern.png\", RetroFuturaGUI::AssetKind::Texture);",
+            "    RetroFuturaGUI::SceneLoader::AddAsset(sceneID, \"Assets/Images/Logo.png\", RetroFuturaGUI::AssetKind::Texture);",
+            "}"].join("\n")), "each file is queued once");
+        assert.ok(read(folder, "source/generated/impl/Scenes/FileScene_p.hpp").includes("        static void QueueAssets();\n"));
+        assert.ok(read(folder, "source/generated/impl/Scenes/OtherScene_setup.cpp").includes("void App::OtherScene_p::QueueAssets()\n{\n}\n"), "a scene naming no file queues nothing");
+
+        writeFileSync(sceneFile, fileScene
+            .replace("RetroFuturaGUI.Images.Pattern.png", "RetroFuturaGUI.Images.Missing.png")
+            .replace("\"Images/Logo.png\"", "\"../Logo.png\"")
+            .replace("Assets.Images.Logo.png", "Dictionary.Images.Logo"));
+
+        const problems = (await generateProject(folder)).problems.map(problem => problem.line + ": " + problem.message);
+        assert.deepEqual(problems,
+        [
+            "4: RetroFuturaGUI's Resources have no Images/Missing.png.",
+            "5: A file's path stays inside an asset folder, such as \"Images/Logo.svg\".",
+            "8: A file is named Assets.<folders>.<name>.<extension> or RetroFuturaGUI.<folders>.<name>.<extension>, such as Assets.Images.Logo.svg."
+        ]);
+    }
+    finally
+    {
+        rmSync(folder, { recursive: true, force: true });
+    }
+});

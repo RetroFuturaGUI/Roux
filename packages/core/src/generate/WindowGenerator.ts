@@ -24,6 +24,7 @@ export interface WindowProject
     readonly namespace: string;
     readonly schema: Schema;
     readonly scenes: ReadonlyMap<string, readonly string[]>; //Every scene by name, with the scenes it loads.
+    readonly assetFolders: readonly string[]; //The project's, relative to it, as Project.bechaml lists them
     readonly userHeader: string | undefined;
     readonly userSource: string | undefined;
 }
@@ -94,14 +95,16 @@ export function generatedWindowBase(folder: string, namespace: string): Map<stri
         "        void Update();",
         "        void Draw();",
         "",
-        "        /// @brief Swaps in the scenes asked for during the frame, each in the place of the scene that asked. Call it after",
-        "        ///        every window drew and SceneLoader::DrainPending ran, so no widget of a scene that goes is still running.",
+        "        /// @brief Swaps in the scenes asked for whose files are loaded, each in the place of the scene that asked; the others",
+        "        ///        wait for a later frame while the scene that asked keeps running. Call it after every window drew and",
+        "        ///        SceneLoader::DrainPending ran, so no widget of a scene that goes is still running.",
         "        void ApplySceneRequests();",
         "",
         "    protected:",
         "        GeneratedWindow() = default;",
         "",
-        "        /// @brief Builds the named scene and shows it after the ones shown already.",
+        "        /// @brief Builds the named scene and shows it after the ones shown already. Its files are queued first and finished",
+        "        ///        as its widgets ask for them.",
         "        void showScene(std::string_view sceneName);",
         "",
         "        /// @brief What the window's scenes call to be replaced by another.",
@@ -122,11 +125,18 @@ export function generatedWindowBase(folder: string, namespace: string): Map<stri
         "        /// @brief Builds one of the scenes the window lists; nullptr for a name it doesn't list.",
         "        virtual std::unique_ptr<GeneratedScene> createScene(std::string_view sceneName) = 0;",
         "",
+        "        /// @brief Queues the files one of the scenes the window lists names, so they load before it is built.",
+        "        virtual void queueAssets(std::string_view sceneName) = 0;",
+        "",
         "        /// @brief Whether the window lists the scene.",
         "        virtual bool hasScene(std::string_view sceneName) const = 0;",
         "",
-        "        /// @brief Keeps a scene's request for after the frame; a scene asking again before then changes nothing.",
+        "        /// @brief Keeps a scene's request until its files are loaded and the frame is over, and queues the files; a scene",
+        "        ///        asking again before then changes nothing.",
         "        void requestScene(const GeneratedScene& requester, std::string_view sceneName);",
+        "",
+        "        /// @brief Whether every file queued for the scene is loaded, or failed to load. True for a scene with none.",
+        "        static bool areAssetsLoaded(std::string_view sceneName);",
         "",
         "        std::vector<std::unique_ptr<GeneratedScene>> _scenes {}; //In the window's draw order.",
         "        std::vector<PendingScene> _pendingScenes {};",
@@ -245,8 +255,15 @@ export function generatedWindowBase(folder: string, namespace: string): Map<stri
         "    //The scenes' widgets are made and freed with this window's GL context current.",
         "    glfwMakeContextCurrent(_window->GetGlfwWindow());",
         "",
-        "    for(const PendingScene& pending : std::exchange(_pendingScenes, {}))",
+        "    for(PendingScene& pending : std::exchange(_pendingScenes, {}))",
         "    {",
+        "        //A scene is built once its files are loaded, so its widgets find them ready. Until then the scene that asked keeps running.",
+        "        if(!areAssetsLoaded(pending._SceneName))",
+        "        {",
+        "            _pendingScenes.push_back(std::move(pending));",
+        "            continue;",
+        "        }",
+        "",
         "        const std::vector<std::unique_ptr<GeneratedScene>>::iterator found { std::find_if(_scenes.begin(), _scenes.end(), [&pending](const std::unique_ptr<GeneratedScene>& scene) { return scene.get() == pending._Requester; }) };",
         "",
         "        if(found == _scenes.end())",
@@ -274,6 +291,7 @@ export function generatedWindowBase(folder: string, namespace: string): Map<stri
         "    if(!_window)",
         "        return;",
         "",
+        "    queueAssets(sceneName);",
         "    std::unique_ptr<GeneratedScene> scene { createScene(sceneName) };",
         "",
         "    if(!scene)",
@@ -300,6 +318,14 @@ export function generatedWindowBase(folder: string, namespace: string): Map<stri
         "        return;",
         "",
         "    _pendingScenes.push_back(PendingScene { ._Requester = &requester, ._SceneName = std::string(sceneName) });",
+        "    queueAssets(sceneName);",
+        "}",
+        "",
+        "bool " + namespace + "::GeneratedWindow::areAssetsLoaded(std::string_view sceneName)",
+        "{",
+        "    //NaN for a scene with no files queued, which waits for nothing.",
+        "    const f32 progress { RetroFuturaGUI::SceneLoader::SceneLoadingProgress(RetroFuturaGUI::SceneLoader::GetSceneID(sceneName)) };",
+        "    return !(1.0f > progress);",
         "}",
         ""
     ];
@@ -378,7 +404,7 @@ class WindowGenerator extends MarkupGenerator
 
     constructor(window: WindowInput, project: WindowProject)
     {
-        super(window.file, window.text, project.folder, project.schema);
+        super(window.file, window.text, project.folder, project.schema, project.assetFolders);
         this._window = window;
         this._project = project;
     }
@@ -560,6 +586,7 @@ class WindowGenerator extends MarkupGenerator
             "    private:",
             "        void build() override;",
             "        std::unique_ptr<GeneratedScene> createScene(std::string_view sceneName) override;",
+            "        void queueAssets(std::string_view sceneName) override;",
             "        bool hasScene(std::string_view sceneName) const override;",
             "    };",
             "}",
@@ -603,6 +630,17 @@ class WindowGenerator extends MarkupGenerator
         }
 
         writer.write("    return nullptr;");
+        writer.write("}");
+        writer.write("");
+        writer.write("void " + name + "::queueAssets(" + parameter + ")");
+        writer.write("{");
+
+        for (const [index, scene] of this._scenes.entries())
+        {
+            writer.write((0 === index ? "    " : "    else ") + "if(" + JSON.stringify(scene.name) + " == sceneName)", this.lineOf(scene.element));
+            writer.write("        " + scene.name + "::QueueAssets();", this.lineOf(scene.element));
+        }
+
         writer.write("}");
         writer.write("");
         writer.write("bool " + name + "::hasScene(" + parameter + ") const");

@@ -23,6 +23,7 @@ export interface SceneProject
     readonly namespace: string;
     readonly schema: Schema;
     readonly sceneNames: ReadonlySet<string>; //Every scene's, for Scenes.X.
+    readonly assetFolders: readonly string[]; //The project's, relative to it, as Project.bechaml lists them
     readonly userHeader: string | undefined; //The user's <Name>.hpp as it is now; undefined when it doesn't exist yet.
     readonly userSource: string | undefined;
 }
@@ -198,7 +199,7 @@ class SceneGenerator extends MarkupGenerator
 
     constructor(scene: SceneInput, project: SceneProject)
     {
-        super(scene.file, scene.text, project.folder, project.schema);
+        super(scene.file, scene.text, project.folder, project.schema, project.assetFolders);
         this._scene = scene;
         this._project = project;
     }
@@ -528,7 +529,7 @@ class SceneGenerator extends MarkupGenerator
             }
 
             consumed.add(attribute);
-            const value = this.convertAt(attribute, parameter.type, widget.schemaClass.cpp);
+            const value = this.convertAt(attribute, parameter.type, widget.schemaClass.cpp, parameter.name);
 
             if (undefined === value)
                 return undefined;
@@ -647,6 +648,11 @@ class SceneGenerator extends MarkupGenerator
             "{",
             "    class " + this._name + "_p : public GeneratedScene",
             "    {",
+            "    public:",
+            "        /// @brief Queues the files the scene's markup names with SceneLoader::AddAsset, counted as the scene's, so they",
+            "        ///        load before the scene is built and its widgets find them ready.",
+            "        static void QueueAssets();",
+            "",
             "    protected:",
             "        explicit " + this._name + "_p(RetroFuturaGUI::Window* parentWindow);",
             "",
@@ -697,6 +703,18 @@ class SceneGenerator extends MarkupGenerator
         writer.write("");
         writer.write(name + "::" + this._name + "_p(RetroFuturaGUI::Window* parentWindow) : GeneratedScene(parentWindow)");
         writer.write("{");
+        writer.write("}");
+        writer.write("");
+        writer.write("void " + name + "::QueueAssets()");
+        writer.write("{");
+        const queued = [...this._files].filter(([, kind]) => undefined !== kind);
+
+        if (0 < queued.length)
+            writer.write("    const u32 sceneID { RetroFuturaGUI::SceneLoader::GetSceneID(" + JSON.stringify(this._name) + ") };");
+
+        for (const [file, kind] of queued)
+            writer.write("    RetroFuturaGUI::SceneLoader::AddAsset(sceneID, " + JSON.stringify(file) + ", RetroFuturaGUI::AssetKind::" + kind + ");");
+
         writer.write("}");
         writer.write("");
         writer.write("void " + name + "::build()");

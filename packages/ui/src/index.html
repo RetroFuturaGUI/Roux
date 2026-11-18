@@ -9,6 +9,7 @@
         <script src="app.js" defer></script>
         <script src="project.js" defer></script>
         <script src="build.js" defer></script>
+        <script src="assets.js" defer></script>
         <title>Roux</title>
     </head>
     <body>
@@ -17,6 +18,7 @@
             <button class="tablinks" data-tab="Project">Project</button>
             <button class="tablinks" data-tab="App">App</button>
             <button class="tablinks" data-tab="Build">Build</button>
+            <button class="tablinks" data-tab="Assets">Assets</button>
         </div>
         <div id="tabcontainer">
             <div id="Setup" class="tabcontent">
@@ -419,6 +421,28 @@ Rebuilt for other projects: none</pre>
 
                     <label class="mockup-option"><input type="checkbox" id="build-fail"/> Mockup only: make the build fail</label>
                 </form>
+            </div>
+
+            <div id="Assets" class="tabcontent">
+                <h3>Assets</h3>
+                <!-- Served by Roux: the pictures in the project's asset folders and RetroFuturaGUI's premade Resources (assets.js). -->
+                <div class="build-actions">
+                    <button type="button" class="primary" id="assets-add">Add images…</button>
+                    <button type="button" id="assets-refresh">Refresh</button>
+                    <input type="file" id="assets-picker" multiple hidden/>
+                </div>
+                <span class="hint" id="assets-hint">Opened as a file, the page has no project to show. Served by Roux, this tab shows the project's asset folders.</span>
+                <div class="file-status" id="assets-status" hidden></div>
+                <div id="assets-sections"></div>
+
+                <dialog id="assets-clash">
+                    <p id="assets-clash-text"></p>
+                    <div class="build-actions">
+                        <button type="button" value="replace">Replace</button>
+                        <button type="button" value="keepBoth" class="primary">Keep both</button>
+                        <button type="button" value="skip">Skip</button>
+                    </div>
+                </dialog>
             </div>
         </div>
     </body>

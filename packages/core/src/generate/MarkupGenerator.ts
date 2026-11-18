@@ -1,7 +1,9 @@
+import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { LineMap } from "../bechaml/LineMap.js";
 import { parseBechamlValue } from "../bechaml/Parser.js";
 import { printSyntax, type Attribute, type Element, type Span, type Value } from "../bechaml/Syntax.js";
+import { assetKinds, type AssetKind } from "../project/Assets.js";
 import type { Schema, SchemaClass, SchemaParameter, SchemaSetter } from "../schema/Schema.js";
 import type { GenerateProblem } from "./Generator.js";
 
@@ -53,6 +55,11 @@ export class ConversionError extends Error
 export const cppKeywords = new Set(["alignas", "alignof", "and", "asm", "auto", "bool", "break", "case", "catch", "char", "class", "const", "consteval", "constexpr", "constinit", "continue", "decltype", "default", "delete", "do", "double", "else", "enum", "explicit", "export", "extern", "false", "float", "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "not", "nullptr", "operator", "or", "private", "protected", "public", "register", "requires", "return", "short", "signed", "sizeof", "static", "struct", "switch", "template", "this", "throw", "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void", "volatile", "while", "xor"]);
 
 const isEmitSignal = (parameter: SchemaParameter) => "emitSignal" === parameter.name && "bool" === parameter.type;
+
+//A parameter naming a file the library loads, such as SetImage(path) or an SvgImage's SvgImagePath
+const isFileParameter = (type: string, name: string) => ("std::string_view" === type || "std::string" === type) && /path$/i.test(name);
+
+const isFile = (file: string) => existsSync(file) && statSync(file).isFile();
 const unsignedTypes = new Set(["u8", "u16", "u32", "u64", "uSize"]);
 export const integerTypes = new Set([...unsignedTypes, "i8", "i16", "i32", "i64", "int"]);
 
@@ -63,13 +70,16 @@ export abstract class MarkupGenerator
     protected readonly _schema: Schema;
     protected readonly _problems: GenerateProblem[] = [];
     protected readonly _headers = new Set<string>(); //Library headers by name, and standard ones as <array>.
+    protected readonly _files = new Map<string, AssetKind | undefined>(); //The files the markup names, as the built app finds them.
+    private readonly _assetFolders: readonly string[]; //The project's, relative to it, in the order files are looked up.
     private readonly _lineMap: LineMap;
 
-    constructor(file: string, text: string, folder: string, schema: Schema)
+    constructor(file: string, text: string, folder: string, schema: Schema, assetFolders: readonly string[])
     {
         this._file = file;
         this._folder = folder;
         this._schema = schema;
+        this._assetFolders = assetFolders;
         this._lineMap = new LineMap(text);
     }
 
@@ -512,7 +522,7 @@ export abstract class MarkupGenerator
                     throw new ConversionError(attribute, attribute.name + " needs " + overload.group[index - 1] + " too.");
 
                 if (attribute)
-                    values.set(parameter, this.convert(attribute.value ?? trueValue(attribute), parameter.type, schemaClass.cpp));
+                    values.set(parameter, this.convertNamed(attribute.value ?? trueValue(attribute), parameter.type, parameter.name, schemaClass.cpp));
                 else if (undefined !== fallback)
                     values.set(parameter, this.convertText(fallback, parameter.type, schemaClass.cpp, at, true));
                 else if (parameter.hasDefault)
@@ -527,17 +537,23 @@ export abstract class MarkupGenerator
             const value = attribute.value ?? trueValue(attribute);
             const required = markupParameters.filter(parameter => !parameter.hasDefault).length;
 
+            const first = markupParameters[0] as SchemaParameter;
+
             if (1 === markupParameters.length)
             {
-                values.set(markupParameters[0] as SchemaParameter, this.convert(value, (markupParameters[0] as SchemaParameter).type, schemaClass.cpp));
+                values.set(first, this.convertNamed(value, first.type, first.name, schemaClass.cpp));
             }
             else if ("List" === value.kind && required <= value.items.length && markupParameters.length >= value.items.length)
             {
-                value.items.forEach((item, index) => values.set(markupParameters[index] as SchemaParameter, this.convert(item, (markupParameters[index] as SchemaParameter).type, schemaClass.cpp)));
+                value.items.forEach((item, index) =>
+                {
+                    const parameter = markupParameters[index] as SchemaParameter;
+                    values.set(parameter, this.convertNamed(item, parameter.type, parameter.name, schemaClass.cpp));
+                });
             }
             else if (0 === required && 0 < markupParameters.length)
             {
-                values.set(markupParameters[0] as SchemaParameter, this.convert(value, (markupParameters[0] as SchemaParameter).type, schemaClass.cpp));
+                values.set(first, this.convertNamed(value, first.type, first.name, schemaClass.cpp));
             }
             else
             {
@@ -611,11 +627,12 @@ export abstract class MarkupGenerator
 
     //Values
 
-    protected convertAt(attribute: Attribute, type: string, owner: string): string | undefined
+    //Name is the parameter's or the field's, which tells a file apart from other text; empty for neither
+    protected convertAt(attribute: Attribute, type: string, owner: string, name = ""): string | undefined
     {
         try
         {
-            return this.convert(attribute.value ?? trueValue(attribute), type, owner);
+            return this.convertNamed(attribute.value ?? trueValue(attribute), type, name, owner);
         }
         catch (error)
         {
@@ -625,6 +642,63 @@ export abstract class MarkupGenerator
             this.error(error.node ?? attribute, error.message);
             return undefined;
         }
+    }
+
+    //A parameter's value: a file for a parameter naming one, else as its type is written
+    protected convertNamed(value: Value, type: string, name: string, owner: string): string
+    {
+        return isFileParameter(type, name) ? this.fileArgument(value) : this.convert(value, type, owner);
+    }
+
+    //A file the markup names, as the built app finds it, kept for the scene's file list. Named by a reference
+    //(Assets.Images.Logo.svg, RetroFuturaGUI.Images.CloseIcon.svg) or by a path inside an asset folder ("Images/Logo.svg"),
+    //looked up in the project's folders first, then in RetroFuturaGUI's Resources. A file that isn't there stops Generate,
+    //so a misspelled name never shows as a missing image
+    private fileArgument(value: Value): string
+    {
+        const file = this.findFile(value);
+        this._files.set(file, assetKinds[path.extname(file).toLowerCase()]);
+        return JSON.stringify(file);
+    }
+
+    private findFile(value: Value): string
+    {
+        //The build copies the project's asset folders into Assets/ and RetroFuturaGUI's Resources into Resources/
+        const projectFolders = this._assetFolders.map(folder => path.join(this._folder, folder));
+        const libraryFolder = path.join(this._folder, "RetroFuturaGUI", "Resources");
+        const find = (folders: readonly string[], relative: string, copiedTo: string) => folders.some(folder => isFile(path.join(folder, relative))) ? copiedTo + "/" + relative : undefined;
+
+        if ("Reference" === value.kind)
+        {
+            const [root, ...rest] = value.segments;
+
+            if (("Assets" !== root && "RetroFuturaGUI" !== root) || 3 > value.segments.length)
+                throw new ConversionError(value, "A file is named Assets.<folders>.<name>.<extension> or RetroFuturaGUI.<folders>.<name>.<extension>, such as Assets.Images.Logo.svg.");
+
+            //The last two names are the file's name and extension, the ones before them its folders
+            const relative = [...rest.slice(0, -2), rest.slice(-2).join(".")].join("/");
+            const file = "Assets" === root ? find(projectFolders, relative, "Assets") : find([libraryFolder], relative, "Resources");
+
+            if (!file)
+                throw new ConversionError(value, "Assets" === root ? "None of the project's asset folders (" + this._assetFolders.join(", ") + ") has " + relative + "." : "RetroFuturaGUI's Resources have no " + relative + ".");
+
+            return file;
+        }
+
+        if ("String" !== value.kind)
+            throw new ConversionError(value, "This takes a file: a reference such as Assets.Images.Logo.svg, or a path inside an asset folder such as \"Images/Logo.svg\".");
+
+        const relative = value.value.replace(/\\/g, "/");
+
+        if (path.isAbsolute(relative) || relative.split("/").includes(".."))
+            throw new ConversionError(value, "A file's path stays inside an asset folder, such as \"Images/Logo.svg\".");
+
+        const file = find(projectFolders, relative, "Assets") ?? find([libraryFolder], relative, "Resources");
+
+        if (!file)
+            throw new ConversionError(value, "Neither the project's asset folders (" + this._assetFolders.join(", ") + ") nor RetroFuturaGUI's Resources have " + relative + ".");
+
+        return file;
     }
 
     //A default from the schema, written as a .bechaml value: a field's ("Fixed", 1.0) or a setter's (Pixels, a bare enum
