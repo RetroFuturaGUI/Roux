@@ -1,0 +1,149 @@
+{
+    "scopeName": "text.bechaml",
+    "fileTypes": ["bechaml"],
+    "patterns":
+    [
+        { "include": "#comment" },
+        { "include": "#close-tag" },
+        { "include": "#open-tag" }
+    ],
+    "repository":
+    {
+        "comment":
+        {
+            "name": "comment.block",
+            "begin": "<!--",
+            "beginCaptures":
+            {
+                "0": { "name": "punctuation.definition.comment.begin" }
+            },
+            "end": "-->",
+            "endCaptures":
+            {
+                "0": { "name": "punctuation.definition.comment.end" }
+            }
+        },
+        "open-tag":
+        {
+            "name": "meta.tag",
+            "begin": "(<)([A-Za-z_][A-Za-z0-9_]*)",
+            "beginCaptures":
+            {
+                "1": { "name": "punctuation.definition.tag.begin" },
+                "2": { "name": "entity.name.tag" }
+            },
+            "end": "/?>",
+            "endCaptures":
+            {
+                "0": { "name": "punctuation.definition.tag.end" }
+            },
+            "patterns":
+            [
+                { "include": "#comment" },
+                { "include": "#attribute" },
+                { "include": "#value" },
+                { "include": "#boolean-attribute" }
+            ]
+        },
+        "close-tag":
+        {
+            "name": "meta.tag",
+            "begin": "(<)(/)([A-Za-z_][A-Za-z0-9_]*)",
+            "beginCaptures":
+            {
+                "1": { "name": "punctuation.definition.tag.begin" },
+                "2": { "name": "punctuation.definition.tag" },
+                "3": { "name": "entity.name.tag" }
+            },
+            "end": ">",
+            "endCaptures":
+            {
+                "0": { "name": "punctuation.definition.tag.end" }
+            }
+        },
+        "attribute":
+        {
+            "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(?::([A-Za-z_][A-Za-z0-9_]*))?(?=\\s*=)",
+            "captures":
+            {
+                "1": { "name": "entity.other.attribute-name" },
+                "2": { "name": "support.constant.color-state" }
+            }
+        },
+        "boolean-attribute":
+        {
+            "match": "(\\s+)([A-Za-z_][A-Za-z0-9_]*)(?=\\s|/?>)",
+            "captures":
+            {
+                "2": { "name": "entity.other.attribute-name" }
+            }
+        },
+        "value":
+        {
+            "patterns":
+            [
+                { "include": "#string" },
+                { "include": "#list" },
+                {
+                    "match": "#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?\\b",
+                    "name": "constant.other.color"
+                },
+                {
+                    "match": "-?(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)(?:[eE][-+]?[0-9]+)?\\b",
+                    "name": "constant.numeric"
+                },
+                {
+                    "match": "\\b(?:True|False)\\b",
+                    "name": "constant.language.boolean"
+                },
+                {
+                    "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+\\b",
+                    "name": "variable.other.reference"
+                }
+            ]
+        },
+        "string":
+        {
+            "name": "string.quoted.double",
+            "begin": "\"",
+            "beginCaptures":
+            {
+                "0": { "name": "punctuation.definition.string.begin" }
+            },
+            "end": "\"",
+            "endCaptures":
+            {
+                "0": { "name": "punctuation.definition.string.end" }
+            },
+            "patterns":
+            [
+                {
+                    "match": "\\\\[\"\\\\nt]",
+                    "name": "constant.character.escape"
+                }
+            ]
+        },
+        "list":
+        {
+            "name": "meta.sequence",
+            "begin": "\\{",
+            "beginCaptures":
+            {
+                "0": { "name": "punctuation.section.sequence.begin" }
+            },
+            "end": "\\}",
+            "endCaptures":
+            {
+                "0": { "name": "punctuation.section.sequence.end" }
+            },
+            "patterns":
+            [
+                { "include": "#value" },
+                {
+                    "match": ",",
+                    "name": "punctuation.separator.sequence"
+                }
+            ]
+        }
+    }
+}

@@ -68,6 +68,7 @@ entries.push({ name: "extension.vsixmanifest", data: Buffer.from(vsixManifest) }
 entries.push({ name: "[Content_Types].xml", data: Buffer.from(contentTypes) });
 addFile("extension/package.json", path.join(extensionFolder, "package.json"));
 addFolder("extension/out/", path.join(extensionFolder, "out"));
+addFolder("extension/syntaxes/", path.join(extensionFolder, "syntaxes"));
 addPackage("roux-core", path.join(packagesFolder, "core"), "out");
 addPackage("roux-protocol", path.join(packagesFolder, "protocol"), "out");
 addPackage("roux-ui", path.join(packagesFolder, "ui"), "src");

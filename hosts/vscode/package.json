@@ -18,6 +18,22 @@
     ],
     "contributes":
     {
+        "languages":
+        [
+            {
+                "id": "bechaml",
+                "aliases": ["Bechaml", ".bechaml"],
+                "extensions": [".bechaml"]
+            }
+        ],
+        "grammars":
+        [
+            {
+                "language": "bechaml",
+                "scopeName": "text.bechaml",
+                "path": "./syntaxes/bechaml.tmLanguage.json"
+            }
+        ],
         "commands":
         [
             {
