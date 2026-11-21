@@ -49,7 +49,8 @@ async function testSchema(libraryFolder: string): Promise<Schema>
                     Enabled: [{ call: "SetEnabled", params: [{ name: "enable", type: "bool" }, { name: "emitSignal", type: "bool" }] }],
                     Rotation: [{ call: "SetRotation", params: [{ name: "rotation", type: "glm::vec3" }] }]
                 },
-                signals: { OnClick: signal, OnFilesDropped: { connect: "Connect_OnFilesDropped", slot: "typename Signal<std::vector<std::string>, glm::vec2>::Slot" } }
+                signals: { OnClick: signal, OnFilesDropped: { connect: "Connect_OnFilesDropped", slot: "typename Signal<std::vector<std::string>, glm::vec2>::Slot" } },
+                slots: { Press: { call: "Press", params: [] } }
             }),
             WidgetText: schemaClass("WidgetText", "Widgets/Parts/WidgetText.hpp", "part",
             {
@@ -220,6 +221,36 @@ test("gives the user's class only the slots it lacks, keeps its bodies, and rege
         const source = readFileSync(userSource, "utf8");
         assert.ok(source.includes("void App::MenuScene::Tick()\n{\n    ++_ticks;\n}"), "a body stays");
         assert.ok(source.endsWith("\nint App::MenuScene::Count(int start)\n{\n    return {};\n}\n"));
+    }
+    finally
+    {
+        rmSync(folder, { recursive: true, force: true });
+    }
+});
+
+test("connects a signal to a function of a named widget with @, and reports what prefabs and @ elements can't do yet", async () =>
+{
+    const folder = await sceneProject();
+
+    try
+    {
+        const markup = path.join(folder, "source", "code", "Scenes", "MenuScene.bechaml");
+        writeFileSync(markup, menuScene.replace("<Button Name=\"Fixed\" Enabled=False/>", "<Button Name=\"Fixed\" Enabled=False OnClick=@OkButton.Press/>"));
+        const result = await generateProject(folder);
+        assert.deepEqual(result.problems, []);
+        assert.match(read(folder, "source/generated/impl/Scenes/MenuScene_setup.cpp"), /Connect_OnClick\(\[this\]\(\) \{ if\(!_okButton\) return; _okButton->Press\(\); \}, false\);/);
+
+        writeFileSync(markup, menuScene
+            .replace("OnClick={ Slots.Save, Scenes.OtherScene }", "OnClick={ @Nobody.Press, @Grow.Fly }")
+            .replace("<Button Name=\"Fixed\" Enabled=False/>", "<Prefab:Stepper Name=\"Volume\"/>\n            <@Grow Width=1.0/>"));
+        const messages = (await generateProject(folder)).problems.map(problem => path.basename(problem.file) + ":" + problem.line + ":" + problem.column + " " + problem.message);
+        assert.deepEqual(messages,
+        [
+            "MenuScene.bechaml:11:13 <Prefab:Stepper> places a prefab; prefabs aren't generated yet.",
+            "MenuScene.bechaml:12:13 <@Grow> sets a named child of a prefab instance or a <Layout>; neither is generated yet.",
+            "MenuScene.bechaml:5:58 The scene has no widget named Nobody.",
+            "MenuScene.bechaml:5:73 A Button has no function Fly: Press."
+        ]);
     }
     finally
     {

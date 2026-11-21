@@ -1,0 +1,8 @@
+<Prefab:StepperSlider Name="Volume" Row=1 Column=2>
+    <@ButtonUp OnClick=Slots.Louder>
+        <Text String="Up"/>
+    </@ButtonUp>
+    <Button>
+        <Border Width=2.0/>
+    </Button>
+</Prefab:StepperSlider>

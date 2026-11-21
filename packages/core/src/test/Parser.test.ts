@@ -115,6 +115,31 @@ test("reads a widget's parts, setters, color states and signal, and a scene's sl
     assert.ok(slots[1]?.attributes.some(attribute => "Async" === attribute.name && undefined === attribute.value));
 });
 
+test("reads a prefab, an instance's named children with @, and calls on named widgets", () =>
+{
+    const prefab = parseBechaml(fixtures.find(fixture => "Prefab.bechaml" === fixture.name)?.text ?? "").root;
+    assert.equal(prefab?.name, "Prefab");
+    assert.ok(prefab);
+    const root = element(prefab, "Lasagna");
+    const buttonUp = root.elements.find(child => "Button" === child.name && root.elements.indexOf(child) === 2);
+    assert.ok(buttonUp);
+    const onClick = attributeValue(buttonUp, "OnClick");
+    assert.deepEqual("Reference" === onClick?.kind ? onClick.segments : [], ["@ActualSlider", "StepUp"]);
+
+    const instance = parseBechaml(fixtures.find(fixture => "PrefabInstance.bechaml" === fixture.name)?.text ?? "").root;
+    assert.equal(instance?.name, "Prefab:StepperSlider");
+    assert.ok(instance);
+    assert.deepEqual(instance.elements.map(child => child.name), ["@ButtonUp", "Button"]);
+    assert.deepEqual(element(instance, "@ButtonUp").elements.map(child => child.name), ["Text"]);
+
+    //A prefab's slots don't count as its root container.
+    assert.deepEqual(parseBechaml("<Prefab Name=\"A\">\n    <Slot>void Go()</Slot>\n    <Lasagna/>\n</Prefab>").diagnostics, []);
+
+    const layout = parseBechaml("<Layout Name=\"Tall\">\n    <@RootLasagna Rows=4 Columns=1/>\n    <@OkButton Row=3 Column=0/>\n</Layout>");
+    assert.deepEqual(layout.diagnostics, []);
+    assert.deepEqual(layout.root?.elements.map(child => child.name), ["@RootLasagna", "@OkButton"]);
+});
+
 test("reads every kind of value", () =>
 {
     const source = "<Values>{ True, False, 16, -3, 56.7, 1e-3, \"a\\\"b\\\\c\\nd\\te\", #16161D, #1144FF80, { 1.0, 2 }, Dictionary.Colors.Accent, { }, }</Values>";
@@ -207,7 +232,15 @@ test("reports mistakes at their line and column", () =>
         ["<?xml version=\"1.0\"?>\n<A/>", ["1:1 An XML declaration isn't needed: .bechaml files are always UTF-8."]],
         ["<A><!-- open</A>", ["1:2 <A> isn't closed: </A> is missing.", "1:4 The comment isn't closed: --> is missing."]],
         ["<A></A >\n</A>", ["2:1 </A> closes nothing: no element is open here."]],
-        ["<Window.WindowBar/>", ["1:2 <Window.WindowBar> isn't an element name: names have no . or :. A part is an element of its own inside its widget, such as <Border> inside <Button>."]]
+        ["<Window.WindowBar/>", ["1:2 <Window.WindowBar> isn't an element name: names have no . or :, only Prefab: before a prefab's name. A part is an element of its own inside its widget, such as <Border> inside <Button>."]],
+        ["<@Inner.ButtonUp/>", ["1:2 <@Inner.ButtonUp> isn't an element name: names have no . or :, only Prefab: before a prefab's name. A part is an element of its own inside its widget, such as <Border> inside <Button>."]],
+        ["<Prefab:Stepper:Slider/>", ["1:2 <Prefab:Stepper:Slider> isn't an element name: names have no . or :, only Prefab: before a prefab's name. A part is an element of its own inside its widget, such as <Border> inside <Button>."]],
+        ["<Button:Hover/>", ["1:2 <Button:Hover> isn't an element name: names have no . or :, only Prefab: before a prefab's name. A part is an element of its own inside its widget, such as <Border> inside <Button>."]],
+        ["<A OnClick=@Bars/>", ["1:12 @Bars names a widget; a value calls one of its functions, such as @Bars.StepUp."]],
+        ["<A OnClick=@/>", ["1:12 @ isn't a value."]],
+        ["<Prefab/>", ["1:2 <Prefab> needs a Name, written as a string: Name=\"StepperSlider\".", "1:2 <Prefab> needs its root container inside it, such as <Lasagna>."]],
+        ["<Prefab Name=\"A\"><Lasagna/><Button/></Prefab>", ["1:29 A prefab holds one root container; put <Button> inside it."]],
+        ["<Scene><Prefab Name=\"A\"><Lasagna/></Prefab></Scene>", ["1:9 <Prefab> only starts a prefab file; a prefab is placed as <Prefab:Name>, such as <Prefab:StepperSlider>."]]
     ];
 
     for (const [source, expected] of cases)

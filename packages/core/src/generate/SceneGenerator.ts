@@ -299,6 +299,19 @@ class SceneGenerator extends MarkupGenerator
 
     private readWidget(element: Element, parent: WidgetNode | undefined, index: number): WidgetNode | undefined
     {
+        //Decided in the .bechaml plan (8.1), not generated yet.
+        if (element.name.startsWith("Prefab:"))
+        {
+            this.error(element, "<" + element.name + "> places a prefab; prefabs aren't generated yet.");
+            return undefined;
+        }
+
+        if (element.name.startsWith("@"))
+        {
+            this.error(element, "<" + element.name + "> sets a named child of a prefab instance or a <Layout>; neither is generated yet.");
+            return undefined;
+        }
+
         const schemaClass = this._schema.classes[element.name];
 
         if (!schemaClass || "widget" !== schemaClass.role)
@@ -628,7 +641,31 @@ class SceneGenerator extends MarkupGenerator
             return { lambda: ignoring + " { callWindowSlot(&RetroFuturaGUI::Window::" + slot.call + "); }", isAsync: false };
         }
 
-        this.unknownTarget(value, "Slots.<Name>, Scenes.<Name> or Window.<Name>");
+        //@Bars.StepUp: a function of one of the scene's widgets, a library method tagged @bechaml slot.
+        if (kind?.startsWith("@") && name)
+        {
+            const widgetName = kind.slice(1);
+            const widget = this._widgets.find(node => widgetName === node.name);
+
+            if (!widget)
+            {
+                this.error(value, "The scene has no widget named " + widgetName + ".");
+                return undefined;
+            }
+
+            const slot = widget.schemaClass.slots[name];
+
+            if (!slot || 0 < slot.params.length)
+            {
+                const names = Object.entries(widget.schemaClass.slots).filter(([, entry]) => 0 === entry.params.length).map(([slotName]) => slotName);
+                this.error(value, "A " + widget.type + " has no function " + name + (names.length ? ": " + names.join(", ") + "." : "; it has none to call yet."));
+                return undefined;
+            }
+
+            return { lambda: ignoring + " { if(!" + widget.member + ") return; " + widget.member + "->" + slot.call + "(); }", isAsync: false };
+        }
+
+        this.unknownTarget(value, "Slots.<Name>, Scenes.<Name>, Window.<Name> or @<Widget>.<Function>");
         return undefined;
     }
 

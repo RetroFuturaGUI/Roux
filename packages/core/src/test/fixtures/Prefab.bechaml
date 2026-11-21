@@ -1,0 +1,11 @@
+<Prefab Name="StepperSlider">
+    <Lasagna Rows={ 1.0 } Columns={ 0.15, 0.7, 0.15 } Layers=1>
+        <Button Name="ButtonDown" Row=0 Column=0 OnClick=@ActualSlider.StepDown>
+            <Text String="-"/>
+        </Button>
+        <Slider Name="ActualSlider" Row=0 Column=1 Type="F32"/>
+        <Button Name="ButtonUp" Row=0 Column=2 OnClick=@ActualSlider.StepUp>
+            <Text String="+"/>
+        </Button>
+    </Lasagna>
+</Prefab>

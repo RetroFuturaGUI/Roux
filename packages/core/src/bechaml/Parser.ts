@@ -31,6 +31,10 @@ const rawTextElements = new Set(["Slot"]);
 
 //Element names, attribute names (Colors:Hover) and references (Dictionary.Colors.Accent). Each place checks the shape
 const nameExpression = /[A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*/y;
+//Element names and references, which may also start with @ to name a widget: <@ButtonUp>, @ActualSlider.StepUp
+const namedExpression = /@?[A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*/y;
+//The one prefix an element name may have: Prefab:StepperSlider places a prefab
+const prefabPrefix = "Prefab:";
 const whitespaceExpression = /[ \t\r\n]+/y;
 //Reads more than a number may be (.5, 5., 2px), so the mistake is reported as one
 const numberExpression = /[-+]?[0-9.]+(?:[eE][-+]?[0-9]+)?[A-Za-z0-9_.]*/y;
@@ -105,6 +109,8 @@ class Parser
 
         if (!root)
             this.report({ start: 0, end: 0 }, "The file has no root element. It needs one, such as <Scene>.");
+        else
+            this.checkPrefabs(root, true);
 
         return {
             kind: "Document",
@@ -115,6 +121,37 @@ class Parser
             root: root,
             diagnostics: this.sortedDiagnostics()
         };
+    }
+
+    //A prefab file's root <Prefab> needs its Name and holds one root container, besides its <Slot>s; <Prefab> starts no
+    //other element. Whether the root container is a container is the generator's to say, as only the schema knows
+    private checkPrefabs(element: Element, isRoot: boolean): void
+    {
+        if ("Prefab" === element.name)
+        {
+            const where = element.nameToken ?? element;
+
+            if (!isRoot)
+            {
+                this.report(where, "<Prefab> only starts a prefab file; a prefab is placed as <Prefab:Name>, such as <Prefab:StepperSlider>.");
+            }
+            else
+            {
+                if (!element.attributes.some(attribute => "Name" === attribute.name))
+                    this.report(where, "<Prefab> needs a Name, written as a string: Name=\"StepperSlider\".");
+
+                const containers = element.elements.filter(child => "Slot" !== child.name);
+
+                if (0 === containers.length)
+                    this.report(where, "<Prefab> needs its root container inside it, such as <Lasagna>.");
+
+                for (const extra of containers.slice(1))
+                    this.report(extra.nameToken ?? extra, "A prefab holds one root container; put <" + extra.name + "> inside it.");
+            }
+        }
+
+        for (const child of element.elements)
+            this.checkPrefabs(child, false);
     }
 
     parseSingleValue(): { value: Value; diagnostics: readonly Diagnostic[] }
@@ -143,7 +180,7 @@ class Parser
 
         let name = "";
         let nameToken: Token | undefined;
-        const nameText = this.match(nameExpression);
+        const nameText = this.match(namedExpression);
 
         if (undefined === nameText)
         {
@@ -154,9 +191,10 @@ class Parser
             name = nameText;
             nameToken = this.take("Name", nameText.length);
             children.push(nameToken);
+            const plainName = name.startsWith(prefabPrefix) ? name.slice(prefabPrefix.length) : name.replace(/^@/, "");
 
-            if (/[.:]/.test(name))
-                this.report(nameToken, "<" + name + "> isn't an element name: names have no . or :. A part is an element of its own inside its widget, such as <Border> inside <Button>.");
+            if (/[.:]/.test(plainName))
+                this.report(nameToken, "<" + name + "> isn't an element name: names have no . or :, only Prefab: before a prefab's name. A part is an element of its own inside its widget, such as <Border> inside <Button>.");
         }
 
         const where = nameToken ?? openTag;
@@ -394,7 +432,7 @@ class Parser
         if (undefined !== number)
             return this.parseNumber(number);
 
-        const name = this.match(nameExpression);
+        const name = this.match(namedExpression);
 
         if (undefined !== name)
             return this.parseName(name);
@@ -566,6 +604,8 @@ class Parser
 
         if (text.includes(":"))
             this.report(token, text + " isn't a value: a colon only goes in attribute names, as in Colors:Hover.");
+        else if (text.startsWith("@") && !text.includes("."))
+            this.report(token, text + " names a widget; a value calls one of its functions, such as " + text + ".StepUp.");
         else if (/^(true|false)$/i.test(text))
             this.report(token, "Write " + text[0]?.toUpperCase() + text.slice(1).toLowerCase() + ": bools are True and False.");
         else if (!text.includes("."))
@@ -583,7 +623,7 @@ class Parser
         const openCloseTag = this.take("OpenCloseTag", 2);
         children.push(openCloseTag);
 
-        const name = this.match(nameExpression);
+        const name = this.match(namedExpression);
 
         if (undefined !== name)
             children.push(this.take("Name", name.length));
@@ -601,8 +641,8 @@ class Parser
     //The name of the closing tag at the position, without reading it.
     private closeTagNameAhead(): string
     {
-        nameExpression.lastIndex = this._position + 2;
-        return nameExpression.exec(this._source)?.[0] ?? "";
+        namedExpression.lastIndex = this._position + 2;
+        return namedExpression.exec(this._source)?.[0] ?? "";
     }
 
     //Everything up to the element's closing tag. Undefined when the element is empty.
