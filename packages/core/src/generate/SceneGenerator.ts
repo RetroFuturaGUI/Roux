@@ -2,7 +2,8 @@ import path from "node:path";
 import type { Attribute, Document, Element, Value } from "../bechaml/Syntax.js";
 import type { Schema, SchemaClass } from "../schema/Schema.js";
 import type { GenerateProblem } from "./Generator.js";
-import { cppKeywords, CppWriter, generatedMark, headerName, integerTypes, lowerFirst, MarkupGenerator, upperFirst, type SlotDeclaration, type Statement } from "./MarkupGenerator.js";
+import type { PrefabModel } from "./PrefabGenerator.js";
+import { builtInArguments, cppKeywords, CppWriter, generatedMark, headerName, integerTypes, lowerFirst, MarkupGenerator, upperFirst, type SlotDeclaration, type Statement } from "./MarkupGenerator.js";
 
 //Generate's scenes (Roux plan, 6.1 and 6.2.1): a <Scene> file and Schema.json become the scene's base class
 //(<Name>_p.hpp and _setup.cpp in source/generated/impl/Scenes/), and the user's class next to the .bechaml, made once and
@@ -26,6 +27,7 @@ export interface SceneProject
     readonly assetFolders: readonly string[]; //The project's, relative to it, as Project.bechaml lists them
     readonly userHeader: string | undefined; //The user's <Name>.hpp as it is now; undefined when it doesn't exist yet.
     readonly userSource: string | undefined;
+    readonly prefabs: ReadonlyMap<string, PrefabModel>; //Every prefab a scene may place, RetroFuturaGUI's and the project's, by name
 }
 
 export interface SceneResult
@@ -169,8 +171,8 @@ export function generatedSceneBase(folder: string, namespace: string): Map<strin
     return new Map([[path.join(folderPath, "GeneratedScene.hpp"), header.join("\n")], [path.join(folderPath, "GeneratedScene.cpp"), source.join("\n")]]);
 }
 
-//A widget of the scene, with what its setup needs to know.
-interface WidgetNode
+//A widget of the scene (or of a prefab), with what its setup needs to know
+export interface WidgetNode
 {
     readonly element: Element;
     readonly type: string;
@@ -182,20 +184,23 @@ interface WidgetNode
     readonly index: number; //Among its parent's widgets.
     readonly children: WidgetNode[];
     readonly parts: Element[];
+    readonly prefab?: PrefabModel; //For a placed prefab: what it is, and the entries for its widgets below
+    readonly prefabEntries?: Element[]; //<@ButtonUp …> and <Button …>, in their order
 }
 
 //What a widget's name may not be, since it also names a member, a local variable and a setup function.
 const reservedNames = new Set(["Scene", "ParentWindow", "LoadScene", "Assets", "Build", "GetScene", "Create", "SceneRequest"]);
 
-class SceneGenerator extends MarkupGenerator
+export class SceneGenerator extends MarkupGenerator
 {
-    private readonly _scene: SceneInput;
-    private readonly _project: SceneProject;
-    private readonly _slots = new Map<string, SlotDeclaration>();
-    private readonly _widgets: WidgetNode[] = [];
+    protected readonly _scene: SceneInput;
+    protected readonly _project: SceneProject;
+    protected readonly _slots = new Map<string, SlotDeclaration>();
+    protected readonly _widgets: WidgetNode[] = [];
     private readonly _takenByParent = new Map<WidgetNode, Set<Attribute>>(); //A child's attributes its parent's children setter took.
-    private _name = "";
-    private _usesForward = false;
+    private readonly _prefabSetups: { name: string; statements: Statement[] }[] = []; //A placed prefab's setup per widget its entries reach
+    protected _name = "";
+    protected _usesForward = false;
 
     constructor(scene: SceneInput, project: SceneProject)
     {
@@ -297,18 +302,14 @@ class SceneGenerator extends MarkupGenerator
         return rootLasagna;
     }
 
-    private readWidget(element: Element, parent: WidgetNode | undefined, index: number): WidgetNode | undefined
+    protected readWidget(element: Element, parent: WidgetNode | undefined, index: number): WidgetNode | undefined
     {
-        //Decided in the .bechaml plan (8.1), not generated yet.
         if (element.name.startsWith("Prefab:"))
-        {
-            this.error(element, "<" + element.name + "> places a prefab; prefabs aren't generated yet.");
-            return undefined;
-        }
+            return this.readPrefabInstance(element, parent, index);
 
         if (element.name.startsWith("@"))
         {
-            this.error(element, "<" + element.name + "> sets a named child of a prefab instance or a <Layout>; neither is generated yet.");
+            this.error(element, "<" + element.name + "> sets a named widget of a placed prefab, so it goes inside <Prefab:…>; in a <Layout> it isn't generated yet.");
             return undefined;
         }
 
@@ -320,35 +321,15 @@ class SceneGenerator extends MarkupGenerator
             return undefined;
         }
 
-        const nameAttribute = element.attributes.find(attribute => "Name" === attribute.name);
-        let name = "String" === nameAttribute?.value?.kind ? nameAttribute.value.value : undefined;
-
-        //The root Lasagna is reached through the scene, so it may go without a name.
-        if (!name && !parent && !nameAttribute)
-            name = "RootLasagna";
+        const name = this.readWidgetName(element, parent);
 
         if (!name)
-        {
-            this.error(nameAttribute ?? element, "<" + element.name + "> needs a Name, written as a string: Name=\"Ok" + element.name + "\".");
             return undefined;
-        }
-
-        if (!/^[A-Za-z_]\w*$/.test(name) || reservedNames.has(name) || cppKeywords.has(lowerFirst(name)))
-        {
-            this.error(nameAttribute ?? element, name + " can't name a widget: it names a C++ member and function too.");
-            return undefined;
-        }
-
-        if (this._widgets.some(widget => widget.name === name))
-        {
-            this.error(nameAttribute ?? element, "Another widget of the scene is named " + name + " already.");
-            return undefined;
-        }
 
         if (element.value)
             this.error(element.value, "A widget holds parts and widgets, not a value.");
 
-        const node: WidgetNode = { element: element, type: element.name, schemaClass: schemaClass, name: name, member: "_" + lowerFirst(name), local: lowerFirst(name), parent: parent, index: index, children: [], parts: [] };
+        const node: WidgetNode = { element: element, type: element.name, schemaClass: schemaClass, name: name, member: this.memberOf(name), local: lowerFirst(name), parent: parent, index: index, children: [], parts: [] };
         this._widgets.push(node);
         this._headers.add(headerName(schemaClass.header));
 
@@ -373,6 +354,138 @@ class SceneGenerator extends MarkupGenerator
         }
 
         return node;
+    }
+
+    //The widget's name, checked to name a C++ member and a setup function and to be the only one of the scene's
+    protected readWidgetName(element: Element, parent: WidgetNode | undefined): string | undefined
+    {
+        const nameAttribute = element.attributes.find(attribute => "Name" === attribute.name);
+        let name = "String" === nameAttribute?.value?.kind ? nameAttribute.value.value : undefined;
+
+        //The root container is reached through the scene or the prefab, so it may go without a name
+        if (!name && !parent && !nameAttribute)
+            name = this.rootName();
+
+        if (!name)
+        {
+            this.error(nameAttribute ?? element, "<" + element.name + "> needs a Name, written as a string: Name=\"Ok" + element.name.replace(/^Prefab:/, "") + "\".");
+            return undefined;
+        }
+
+        if (!/^[A-Za-z_]\w*$/.test(name) || reservedNames.has(name) || cppKeywords.has(lowerFirst(name)))
+        {
+            this.error(nameAttribute ?? element, name + " can't name a widget: it names a C++ member and function too.");
+            return undefined;
+        }
+
+        if (this._widgets.some(widget => widget.name === name))
+        {
+            this.error(nameAttribute ?? element, "Another widget of the " + this.kind() + " is named " + name + " already.");
+            return undefined;
+        }
+
+        return name;
+    }
+
+    //A placed prefab, <Prefab:StepperSlider Name="Volume" …>: a widget of the scene whose C++ member is the prefab's struct.
+    //Its elements are entries for the prefab's widgets: <@ButtonUp …> for one by name, <Button …> for every one of a type
+    private readPrefabInstance(element: Element, parent: WidgetNode | undefined, index: number): WidgetNode | undefined
+    {
+        const prefabName = element.name.slice("Prefab:".length);
+
+        if ("prefab" === this.kind())
+        {
+            this.error(element, "A prefab inside a prefab isn't generated yet.");
+            return undefined;
+        }
+
+        const prefab = this._project.prefabs.get(prefabName);
+        const prefabClass = this._schema.classes["Prefab"];
+
+        if (!prefab || !prefabClass)
+        {
+            const known = [...this._project.prefabs.keys()];
+            this.error(element, "No prefab is named " + prefabName + (known.length ? ": " + known.join(", ") + "." : "; there are none."));
+            return undefined;
+        }
+
+        if (!parent)
+        {
+            this.error(element, "A prefab is placed inside a container, such as the scene's root Lasagna.");
+            return undefined;
+        }
+
+        const name = this.readWidgetName(element, parent);
+
+        if (!name)
+            return undefined;
+
+        if (element.value)
+            this.error(element.value, "A placed prefab holds entries for its widgets, not a value.");
+
+        const entries: Element[] = [];
+
+        for (const child of element.elements)
+        {
+            if (child.name.startsWith("@"))
+            {
+                if (!prefab.children.has(child.name.slice(1)))
+                    this.error(child, prefabName + " has no widget named " + child.name.slice(1) + ": " + [...prefab.children.keys()].join(", ") + ".");
+                else
+                    entries.push(child);
+
+                continue;
+            }
+
+            if ("widget" !== this._schema.classes[child.name]?.role)
+            {
+                this.error(child, "<" + child.name + "> isn't a widget of " + prefabName + " by name (<@Name>) or by type (<Button>).");
+                continue;
+            }
+
+            if (![...prefab.children.values()].some(prefabChild => child.name === prefabChild.type))
+                this.report(child, "warning", prefabName + " holds no " + child.name + ", so this sets nothing.");
+
+            entries.push(child);
+        }
+
+        const node: WidgetNode = { element: element, type: element.name, schemaClass: prefabClass, name: name, member: this.memberOf(name), local: lowerFirst(name), parent: parent, index: index, children: [], parts: [], prefab: prefab, prefabEntries: entries };
+        this._widgets.push(node);
+        this._headers.add(prefab.header);
+        prefab.files.forEach((kind, file) => this._files.set(file, kind));
+        return node;
+    }
+
+    //Hooks a prefab's generator changes
+
+    //What the generated code is: a "scene" or a "prefab"
+    protected kind(): string
+    {
+        return "scene";
+    }
+
+    //The name of a root container written without one
+    protected rootName(): string
+    {
+        return "RootLasagna";
+    }
+
+    //A widget's C++ member, as the generated code reaches it
+    protected memberOf(name: string): string
+    {
+        return "_" + lowerFirst(name);
+    }
+
+    //How a widget's setup calls a child's
+    protected setupCall(child: WidgetNode, parent: WidgetNode): string
+    {
+        return "setup" + child.name + "(*" + parent.local + ");";
+    }
+
+    //The attributes a widget's own setup sets. Those nothing else took
+    protected ownAttributes(widget: WidgetNode, consumed: ReadonlySet<Attribute>): Attribute[]
+    {
+        return widget.element.attributes.filter(attribute => !consumed.has(attribute));
     }
 
     //build(): the scene, its root Lasagna, then each widget's setup.
@@ -426,13 +539,17 @@ class SceneGenerator extends MarkupGenerator
     }
 
     //A widget's setup: it's added to its parent, then given its values, parts, signals and widgets.
-    private setupStatements(widget: WidgetNode): Statement[]
+    protected setupStatements(widget: WidgetNode): Statement[]
     {
         const parent = widget.parent as WidgetNode;
         const container = parent.schemaClass.container;
         const line = this.lineOf(widget.element);
         const consumed = new Set<Attribute>([...widget.element.attributes.filter(attribute => "Name" === attribute.name), ...(this._takenByParent.get(widget) ?? [])]);
         const placement = this.placementArgument(widget, consumed);
+
+        if (widget.prefab)
+            return container && undefined !== placement ? this.prefabInstanceStatements(widget, widget.prefab, placement, consumed) : [];
+
         const constructor = this.constructorArguments(widget, consumed);
 
         if (!container || undefined === placement || undefined === constructor)
@@ -453,12 +570,13 @@ class SceneGenerator extends MarkupGenerator
     }
 
     //What a widget's element says beyond where it goes: its values, its parts, its signals, then the widgets inside it.
-    private widgetBody(widget: WidgetNode, consumed: Set<Attribute>): Statement[]
+    protected widgetBody(widget: WidgetNode, consumed: Set<Attribute>): Statement[]
     {
         const target = widget.local + "->";
         const statements: Statement[] = [];
-        const own = widget.element.attributes.filter(attribute => !consumed.has(attribute));
-        const body = this.attributeStatements(widget.schemaClass, widget.type, own, target);
+        const valueType = this.valueTypeOf(widget.schemaClass, widget.element, consumed);
+        const own = this.ownAttributes(widget, consumed);
+        const body = this.attributeStatements(widget.schemaClass, widget.type, own, target, valueType);
 
         for (const part of widget.parts)
             body.push(...this.partStatements(widget.schemaClass, part, target));
@@ -487,14 +605,87 @@ class SceneGenerator extends MarkupGenerator
             statements.push({ text: "" });
 
             for (const child of widget.children)
-                statements.push({ text: "setup" + child.name + "(*" + widget.local + ");" });
+                statements.push({ text: this.setupCall(child, widget) });
         }
 
         return statements;
     }
 
+    //A placed prefab's setup: the prefab's Build adds it with the prefab file's values, then its own values go to the
+    //Prefab, and every widget its entries reach gets a setup of its own (setupVolumeButtonUp)
+    private prefabInstanceStatements(widget: WidgetNode, prefab: PrefabModel, placement: string, consumed: Set<Attribute>): Statement[]
+    {
+        const parent = widget.parent as WidgetNode;
+        const statements: Statement[] =
+        [
+            { text: widget.member + " = " + prefab.cpp + "::Build(" + parent.local + ", " + JSON.stringify(widget.name) + ", " + placement + ");", line: this.lineOf(widget.element) },
+            { text: "RetroFuturaGUI::Prefab* " + widget.local + " { " + widget.member + "._Prefab.Get() };" },
+            { text: "" },
+            { text: "if(!" + widget.local + ")" },
+            { text: "    return;" }
+        ];
+
+        const body = this.attributeStatements(widget.schemaClass, widget.type, widget.element.attributes.filter(attribute => !consumed.has(attribute)), widget.local + "->");
+
+        if (0 < body.length)
+            statements.push({ text: "" }, ...body);
+
+        //In the prefab's order, each widget its type entries and its name entry reach. The type's values first, so its
+        //own win (the cascade).
+        const calls: Statement[] = [];
+
+        for (const child of prefab.children.values())
+        {
+            const entries = (widget.prefabEntries ?? []).filter(entry => child.type === entry.name || "@" + child.name === entry.name);
+
+            if (0 === entries.length)
+                continue;
+
+            entries.sort((left, right) => Number(left.name.startsWith("@")) - Number(right.name.startsWith("@")));
+            const local = widget.local + child.name;
+            const childStatements: Statement[] =
+            [
+                { text: child.schemaClass.cpp + "* " + local + " { " + widget.member + "." + child.member + ".Get() };" },
+                { text: "" },
+                { text: "if(!" + local + ")" },
+                { text: "    return;" }
+            ];
+
+            for (const entry of entries)
+            {
+                const entryConsumed = new Set<Attribute>();
+                const valueType = this.valueTypeOf(child.schemaClass, entry, entryConsumed, child.valueType);
+                const elementName = entry.name.startsWith("@") ? child.type + " " + child.name : child.type;
+                const entryStatements = this.attributeStatements(child.schemaClass, elementName, entry.attributes.filter(attribute => !entryConsumed.has(attribute)), local + "->", valueType);
+
+                for (const part of entry.elements)
+                {
+                    if (!child.schemaClass.parts[part.name])
+                    {
+                        this.error(part, part.name + " isn't a part of " + child.type + ".");
+                        continue;
+                    }
+
+                    entryStatements.push(...this.partStatements(child.schemaClass, part, local + "->"));
+                }
+
+                if (0 < entryStatements.length)
+                    childStatements.push({ text: "" }, ...entryStatements);
+            }
+
+            const setupName = "setup" + widget.name + child.name;
+            this._prefabSetups.push({ name: setupName, statements: childStatements });
+            calls.push({ text: setupName + "();" });
+        }
+
+        if (0 < calls.length)
+            statements.push({ text: "" }, ...calls);
+
+        return statements;
+    }
+
     //Where the widget goes in its container: a Lasagna's CellPlacement, or a MenuBar's index.
-    private placementArgument(widget: WidgetNode, consumed: Set<Attribute>): string | undefined
+    protected placementArgument(widget: WidgetNode, consumed: Set<Attribute>): string | undefined
     {
         const parent = widget.parent as WidgetNode;
         const placement = parent.schemaClass.container?.placement ?? "";
@@ -512,7 +703,7 @@ class SceneGenerator extends MarkupGenerator
     //What the widget's constructor takes after the parent window, from its attributes: an Image's ImagePath, or a struct
     //such as a Lasagna's AxisDefinition from the struct's fields (Rows, Columns, Layers). An empty string when it takes
     //nothing; undefined after an error.
-    private constructorArguments(widget: WidgetNode, consumed: Set<Attribute>): string | undefined
+    protected constructorArguments(widget: WidgetNode, consumed: Set<Attribute>): string | undefined
     {
         const values: string[] = [];
 
@@ -555,7 +746,7 @@ class SceneGenerator extends MarkupGenerator
 
     //One struct per child of a widget whose children setter takes them: a MenuBar's FlexDefinitions. What each child gives
     //to it is kept, so the child's own setup leaves it out.
-    private childrenStructs(widget: WidgetNode, type: string): string[] | undefined
+    protected childrenStructs(widget: WidgetNode, type: string): string[] | undefined
     {
         const literals: string[] = [];
         let isValid = true;
@@ -653,16 +844,23 @@ class SceneGenerator extends MarkupGenerator
                 return undefined;
             }
 
-            const slot = widget.schemaClass.slots[name];
-
-            if (!slot || 0 < slot.params.length)
+            if (widget.prefab)
             {
-                const names = Object.entries(widget.schemaClass.slots).filter(([, entry]) => 0 === entry.params.length).map(([slotName]) => slotName);
+                this.error(value, widgetName + " is a placed prefab; connect one of its widgets' signals instead, inside <Prefab:" + widget.prefab.name + "> as <@Name On…=…>.");
+                return undefined;
+            }
+
+            const slot = widget.schemaClass.slots[name];
+            const callArguments = slot ? builtInArguments(slot.params) : undefined;
+
+            if (!slot || !callArguments)
+            {
+                const names = Object.entries(widget.schemaClass.slots).filter(([, entry]) => builtInArguments(entry.params)).map(([slotName]) => slotName);
                 this.error(value, "A " + widget.type + " has no function " + name + (names.length ? ": " + names.join(", ") + "." : "; it has none to call yet."));
                 return undefined;
             }
 
-            return { lambda: ignoring + " { if(!" + widget.member + ") return; " + widget.member + "->" + slot.call + "(); }", isAsync: false };
+            return { lambda: ignoring + " { if(!" + widget.member + ") return; " + widget.member + "->" + slot.call + "(" + callArguments.join(", ") + "); }", isAsync: false };
         }
 
         this.unknownTarget(value, "Slots.<Name>, Scenes.<Name>, Window.<Name> or @<Widget>.<Function>");
@@ -696,8 +894,9 @@ class SceneGenerator extends MarkupGenerator
             "    //Widgets, empty once the scene is gone."
         ];
 
+        //A placed prefab's member is its struct, which holds a reference to each of its widgets (_volume._ButtonUp)
         for (const widget of this._widgets)
-            lines.push("        RetroFuturaGUI::WidgetReference<" + widget.schemaClass.cpp + "> " + widget.member + " { nullptr };");
+            lines.push(widget.prefab ? "        " + widget.prefab.cpp + " " + widget.member + " {};" : "        RetroFuturaGUI::WidgetReference<" + widget.schemaClass.cpp + "> " + widget.member + " { nullptr };");
 
         if (0 < this._slots.size)
         {
@@ -717,6 +916,9 @@ class SceneGenerator extends MarkupGenerator
 
             for (const widget of setups)
                 lines.push("        void setup" + widget.name + "(" + (widget.parent as WidgetNode).schemaClass.cpp + "& " + (widget.parent as WidgetNode).local + ");");
+
+            for (const setup of this._prefabSetups)
+                lines.push("        void " + setup.name + "();");
         }
 
         lines.push("    };", "}", "");
@@ -766,6 +968,15 @@ class SceneGenerator extends MarkupGenerator
             writer.write("void " + name + "::setup" + widget.name + "(" + parent.schemaClass.cpp + "& " + parent.local + ")");
             writer.write("{");
             writer.writeAll(statements, "    ");
+            writer.write("}");
+        }
+
+        for (const setup of this._prefabSetups)
+        {
+            writer.write("");
+            writer.write("void " + name + "::" + setup.name + "()");
+            writer.write("{");
+            writer.writeAll(setup.statements, "    ");
             writer.write("}");
         }
 

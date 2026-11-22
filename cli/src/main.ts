@@ -4,7 +4,7 @@ import { readdir, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createInterface } from "node:readline";
 import path from "node:path";
-import { Core, currentEnvironment, findClang, findProjectFolder, generateProject, makeSchema } from "@retrofuturagui/roux-core";
+import { Core, currentEnvironment, findClang, findProjectFolder, generateLibraryPrefabs, generateProject, makeSchema } from "@retrofuturagui/roux-core";
 import { checkPaths } from "./Check.js";
 import { ServeHost } from "./ServeHost.js";
 
@@ -23,6 +23,9 @@ Commands:
   schema [--project <folder>] [--build <folder>]
                                         Writes RetroFuturaGUI/Schema.json from the library's headers through Clang, with
                                         the flags of a configured build (the newest under build/ when none is named)
+  prefabs --library <folder>            Writes the C++ of RetroFuturaGUI's predefined prefabs (source/Prefabs/<Name>/generated/)
+                                        from their .bechaml files, with the library's Schema.json. RetroFuturaGUI's
+                                        GeneratePrefabs script runs it
   build                                 Generate, configure and build (not built yet)
   run                                   Build, then start the program (not built yet)`;
 
@@ -42,6 +45,8 @@ async function main(args: string[]): Promise<number>
             return generate(options);
         case "schema":
             return schema(options);
+        case "prefabs":
+            return prefabs(options);
         case "build":
         case "run":
             console.error("roux " + command + " isn't built yet.");
@@ -186,6 +191,32 @@ async function serve(options: string[]): Promise<number>
     await host.stop();
     core.close();
     return 0;
+}
+
+//RetroFuturaGUI's GeneratePrefabs: the library's predefined prefabs, generated into the library, which compiles them.
+async function prefabs(options: string[]): Promise<number>
+{
+    if ("--library" !== options[0] || !options[1] || 2 < options.length)
+    {
+        console.error("prefabs takes --library <folder>, RetroFuturaGUI's.\n\n" + usage);
+        return 1;
+    }
+
+    const result = await generateLibraryPrefabs(path.resolve(options[1]));
+    const relative = (file: string) => path.relative(process.cwd(), file) || file;
+
+    for (const problem of result.problems)
+        console.log(relative(problem.file) + ":" + problem.line + ":" + problem.column + ": " + problem.severity + ": " + problem.message);
+
+    for (const file of result.written)
+        console.log("Wrote " + relative(file) + ".");
+
+    const failed = result.problems.some(problem => "error" === problem.severity);
+
+    if (!failed && 0 === result.written.length)
+        console.log("Every prefab is up to date.");
+
+    return failed ? 1 : 0;
 }
 
 async function generate(options: string[]): Promise<number>

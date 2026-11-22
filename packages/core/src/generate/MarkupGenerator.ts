@@ -63,6 +63,9 @@ const isFile = (file: string) => existsSync(file) && statSync(file).isFile();
 const unsignedTypes = new Set(["u8", "u16", "u32", "u64", "uSize"]);
 export const integerTypes = new Set([...unsignedTypes, "i8", "i16", "i32", "i64", "int"]);
 
+//The value types Type="…" picks for a widget whose setters are templates (a Slider's MinValue and Value), as C++ types
+export const valueTypes: Readonly<Record<string, string>> = { I8: "i8", I16: "i16", I32: "i32", I64: "i64", U8: "u8", U16: "u16", U32: "u32", U64: "u64", F32: "f32", F64: "f64" };
+
 export abstract class MarkupGenerator
 {
     protected readonly _file: string; //The .bechaml, absolute.
@@ -380,9 +383,33 @@ export abstract class MarkupGenerator
 
     //Attributes: setters and signals
 
+    //The C++ type the element's Type="F32" picks for its class's setter templates, its Type then taken. Else the fallback (a
+    //prefab child's own Type, for an instance's entry). Undefined for a class without setter templates, whose Type is left
+    //to be reported as unknown, and after an error
+    protected valueTypeOf(schemaClass: SchemaClass, element: Element, consumed: Set<Attribute>, fallback?: string): string | undefined
+    {
+        if (!Object.values(schemaClass.setters).flat().some(overload => overload.template))
+            return undefined;
+
+        const attribute = element.attributes.find(candidate => "Type" === candidate.name);
+
+        if (!attribute)
+            return fallback;
+
+        consumed.add(attribute);
+        const value = attribute.value;
+        const type = "String" === value?.kind ? valueTypes[value.value] : undefined;
+
+        if (!type)
+            this.error(value ?? attribute, "Type takes one of " + Object.keys(valueTypes).map(name => "\"" + name + "\"").join(", ") + ".");
+
+        return type;
+    }
+
     //The calls an element's attributes make on the target: its signals, then its setters, a group's attributes going
-    //into one call (FontFamily="Arial" FontSize=18.0 is one SetFontFamily).
-    protected attributeStatements(schemaClass: SchemaClass, elementName: string, attributes: readonly Attribute[], target: string): Statement[]
+    //into one call (FontFamily="Arial" FontSize=18.0 is one SetFontFamily). valueType is the C++ type the setter
+    //templates take (SetValue<f32>); without one they can't be used.
+    protected attributeStatements(schemaClass: SchemaClass, elementName: string, attributes: readonly Attribute[], target: string, valueType?: string): Statement[]
     {
         const statements: Statement[] = [];
         const remaining = [...attributes];
@@ -439,7 +466,18 @@ export abstract class MarkupGenerator
         for (const attribute of [...remaining])
         {
             take(attribute);
-            const overloads = (schemaClass.setters[attribute.setter] ?? []).filter(overload => !overload.template && (!overload.group || attribute.setter === overload.group[0]));
+            const all = schemaClass.setters[attribute.setter] ?? [];
+            const overloads = all.filter(overload => !overload.template && (!overload.group || attribute.setter === overload.group[0]));
+
+            //A setter template takes the element's value type: SetValue<f32>(0.5f, false)
+            if (valueType)
+                overloads.push(...all.filter(overload => overload.template && !overload.group).map(overload => typedOverload(overload, valueType)));
+
+            if (0 === overloads.length && all.some(overload => overload.template))
+            {
+                this.error(attribute, elementName + "'s " + attribute.name + " needs the value type first: Type=\"F32\" or another of " + Object.keys(valueTypes).join(", ") + ".");
+                continue;
+            }
 
             if (0 === overloads.length)
             {
@@ -887,6 +925,21 @@ export class CppWriter
     {
         return this._lines.join("\n") + "\n";
     }
+}
+
+//What Roux passes a built-in function a signal calls (OnClick=@ActualSlider.StepUp): true for each emitSignal, as the
+//call answers what the user did. Undefined when it takes anything else, which markup can't give yet
+export function builtInArguments(parameters: readonly SchemaParameter[]): string[] | undefined
+{
+    return parameters.every(isEmitSignal) ? parameters.map(() => "true") : undefined;
+}
+
+//A setter template as the value type makes it: SetValue<f32>, its T parameters f32
+function typedOverload(overload: SchemaSetter, valueType: string): SchemaSetter
+{
+    const { template, ...rest } = overload;
+    const parameters = template ?? [];
+    return { ...rest, call: overload.call + "<" + valueType + ">", params: overload.params.map(parameter => parameters.includes(parameter.type) ? { ...parameter, type: valueType } : parameter) };
 }
 
 export function trueValue(attribute: Attribute): Value

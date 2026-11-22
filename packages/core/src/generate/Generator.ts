@@ -12,7 +12,8 @@ import { schemaVersion, type Schema } from "../schema/Schema.js";
 import { headersHash, schemaFileName } from "../schema/SchemaFile.js";
 import { cmakeRegions, headerExtensions, projectCMakePath, projectCMakeText, skippedFolders, sourceExtensions, type ProjectFiles } from "./ProjectCMake.js";
 import { generatedMark } from "./MarkupGenerator.js";
-import { generateScene, generatedSceneBase, sceneName } from "./SceneGenerator.js";
+import { generatePrefab, generatedPrefabsFolder, prefabName, type PrefabModel, type PrefabProject } from "./PrefabGenerator.js";
+import { generateScene, generatedSceneBase, sceneName, type SceneInput } from "./SceneGenerator.js";
 import { generatedWindowBase, generateWindow, startFiles } from "./WindowGenerator.js";
 
 export interface GenerateProblem
@@ -48,7 +49,7 @@ const inputFiles = [projectFileName, "CMakeLists.txt", "RetroFuturaGUI/" + schem
 const codeFolder = "source/code";
 
 //Raised whenever Roux writes other text from the same files, so a newer Roux generates again.
-const generatorRevision = 2;
+const generatorRevision = 3;
 
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
@@ -74,7 +75,9 @@ async function inputsText(folder: string): Promise<string>
     const markup = (await markupFiles(folder)).map(file => path.relative(folder, file).split(path.sep).join("/"));
     const companions = markup.flatMap(file => [".hpp", ".cpp"].map(extension => file.replace(/\.bechaml$/, extension)));
 
-    for (const file of [...inputFiles, ...markup, ...companions])
+    const libraryPrefabs = (await libraryPrefabFiles(path.join(folder, "RetroFuturaGUI"))).map(file => path.relative(folder, file).split(path.sep).join("/"));
+
+    for (const file of [...inputFiles, ...markup, ...companions, ...libraryPrefabs])
     {
         const bytes = await readFile(path.join(folder, ...file.split("/"))).catch(() => undefined);
         hashes[file] = bytes ? createHash("sha256").update(bytes).digest("hex") : "";
@@ -96,6 +99,7 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
     const outputs = new Map<string, string>();
     const scenes: { file: string; text: string; document: Document }[] = [];
     const windows: { file: string; text: string; document: Document }[] = [];
+    const projectPrefabs: SceneInput[] = [];
 
     for (const file of await markupFiles(folder))
     {
@@ -110,9 +114,11 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
             scenes.push({ file: file, text: text, document: document });
         else if ("Window" === document.root?.name)
             windows.push({ file: file, text: text, document: document });
+        else if ("Prefab" === document.root?.name)
+            projectPrefabs.push({ file: file, text: text, document: document });
     }
 
-    if (0 === scenes.length + windows.length)
+    if (0 === scenes.length + windows.length + projectPrefabs.length)
     {
         if (startWindow)
             startWindowMistake("<StartWindow> names " + startWindow + ", which isn't a window file.");
@@ -120,7 +126,7 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
         return outputs;
     }
 
-    const first = ([...scenes, ...windows][0] as { file: string }).file;
+    const first = ([...scenes, ...windows, ...projectPrefabs][0] as { file: string }).file;
     const schemaFile = path.join(folder, "RetroFuturaGUI", schemaFileName);
     const schemaText = await readText(schemaFile);
     const schema = schemaText ? JSON.parse(schemaText) as Schema : undefined;
@@ -138,6 +144,7 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
         return outputs;
     }
 
+    const prefabs = await prefabModels(folder, namespace, schema, assetFolders, projectPrefabs, problems, outputs);
     const names = new Map<string, string>();
 
     for (const scene of scenes)
@@ -173,7 +180,7 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
         if (!user)
             continue;
 
-        const result = generateScene(scene, { folder: folder, namespace: namespace, schema: schema, sceneNames: new Set(names.keys()), assetFolders: assetFolders, ...user });
+        const result = generateScene(scene, { folder: folder, namespace: namespace, schema: schema, sceneNames: new Set(names.keys()), assetFolders: assetFolders, prefabs: prefabs, ...user });
         problems.push(...result.problems);
         result.outputs.forEach((text, file) => outputs.set(file, text));
 
@@ -243,6 +250,170 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
     }
 
     return outputs;
+}
+
+//RetroFuturaGUI's predefined prefabs: source/Prefabs/<Name>/<Name>.bechaml, each in a folder of its own
+async function libraryPrefabFiles(libraryFolder: string): Promise<string[]>
+{
+    const prefabsFolder = path.join(libraryFolder, "source", "Prefabs");
+    const entries = await readdir(prefabsFolder, { withFileTypes: true }).catch(() => []);
+    const files: string[] = [];
+
+    for (const entry of entries.filter(candidate => candidate.isDirectory()).sort((left, right) => byName(left.name, right.name)))
+    {
+        const file = path.join(prefabsFolder, entry.name, entry.name + ".bechaml");
+
+        if (await isFile(file))
+            files.push(file);
+    }
+
+    return files;
+}
+
+async function readInputs(files: readonly string[], problems: GenerateProblem[]): Promise<SceneInput[]>
+{
+    const inputs: SceneInput[] = [];
+
+    for (const file of files)
+    {
+        const text = await readText(file);
+
+        if (null === text)
+            problems.push({ file: file, line: 1, column: 1, severity: "error", message: "The file isn't UTF-8." });
+        else if (undefined !== text)
+            inputs.push({ file: file, text: text, document: parseBechaml(text) });
+    }
+
+    return inputs;
+}
+
+//What the library's predefined prefabs generate: their code goes to their own folder's generated/, as RetroFuturaGUI
+//compiles it. The folder is the project's (the one holding RetroFuturaGUI), so their files read the same from Generate
+//and from GeneratePrefabs.
+async function libraryPrefabProject(folder: string, schema: Schema, input: SceneInput, problems: GenerateProblem[]): Promise<PrefabProject>
+{
+    const prefabFolder = path.dirname(input.file);
+    return { folder: folder, namespace: "RetroFuturaGUI::Prefabs", schema: schema, assetFolders: [], outputFolder: path.join(prefabFolder, "generated"), isLibrary: true, ...await prefabCode(path.join(prefabFolder, "code"), input, problems) };
+}
+
+//Where a prefab's own code class goes, and its files as they are now: undefined while one doesn't exist yet. A file that
+//isn't UTF-8 is reported and left alone.
+async function prefabCode(codeFolder: string, input: SceneInput, problems: GenerateProblem[]): Promise<{ codeFolder: string; userHeader: string | undefined; userSource: string | undefined }>
+{
+    const name = prefabName(input.document.root) ?? path.basename(input.file, ".bechaml");
+    const read = async (file: string) =>
+    {
+        const text = await readText(file);
+
+        if (null === text)
+            problems.push({ file: file, line: 1, column: 1, severity: "error", message: "The file isn't UTF-8." });
+
+        return text ?? undefined;
+    };
+
+    return { codeFolder: codeFolder, userHeader: await read(path.join(codeFolder, name + "Code.hpp")), userSource: await read(path.join(codeFolder, name + "Code.cpp")) };
+}
+
+//Every prefab a scene may place, by name: RetroFuturaGUI's, whose code GeneratePrefabs writes into the library, so a stale
+//copy is only reported, and the project's, whose code goes to source/generated/Prefabs/ with the scenes'.
+async function prefabModels(folder: string, namespace: string, schema: Schema, assetFolders: readonly string[], projectPrefabs: readonly SceneInput[], problems: GenerateProblem[], outputs: Map<string, string>): Promise<Map<string, PrefabModel>>
+{
+    const models = new Map<string, PrefabModel>();
+    const files = new Map<string, string>();
+    const add = (model: PrefabModel, file: string) =>
+    {
+        if (models.has(model.name))
+            problems.push({ file: file, line: 1, column: 1, severity: "error", message: "Another prefab is named " + model.name + " already: " + path.relative(folder, files.get(model.name) ?? "") + "." });
+
+        models.set(model.name, model);
+        files.set(model.name, file);
+    };
+
+    for (const input of await readInputs(await libraryPrefabFiles(path.join(folder, "RetroFuturaGUI")), problems))
+    {
+        const result = generatePrefab(input, await libraryPrefabProject(folder, schema, input, problems));
+        problems.push(...result.problems);
+
+        if (!result.model)
+            continue;
+
+        for (const [file, text] of result.outputs)
+        {
+            if (text === await readText(file))
+                continue;
+
+            problems.push({ file: input.file, line: 1, column: 1, severity: "warning", message: "RetroFuturaGUI's generated code of the " + result.model.name + " prefab is out of date: run its GeneratePrefabs." });
+            break;
+        }
+
+        add(result.model, input.file);
+    }
+
+    for (const input of projectPrefabs)
+    {
+        const code = await prefabCode(path.dirname(input.file), input, problems);
+        const result = generatePrefab(input, { folder: folder, namespace: namespace + "::Prefabs", schema: schema, assetFolders: assetFolders, outputFolder: path.join(folder, ...generatedPrefabsFolder.split("/")), isLibrary: false, ...code });
+        problems.push(...result.problems);
+        result.outputs.forEach((text, file) => outputs.set(file, text));
+
+        if (result.model)
+            add(result.model, input.file);
+    }
+
+    return models;
+}
+
+//GeneratePrefabs (roux prefabs --library): RetroFuturaGUI's predefined prefabs become their C++ in source/Prefabs/<Name>/
+//generated/, with the library's Schema.json. Nothing is written while one has an error, and an unchanged file isn't written.
+export async function generateLibraryPrefabs(libraryFolder: string): Promise<{ problems: GenerateProblem[]; written: string[] }>
+{
+    const problems: GenerateProblem[] = [];
+    const schemaFile = path.join(libraryFolder, schemaFileName);
+    const schemaText = await readText(schemaFile);
+    const schema = schemaText ? JSON.parse(schemaText) as Schema : undefined;
+
+    if (!schema || schemaVersion !== schema.schemaVersion)
+    {
+        problems.push({ file: schemaFile, line: 1, column: 1, severity: "error", message: schema ? "Schema.json was made by another Roux: run roux schema." : "Schema.json is missing: run roux schema." });
+        return { problems: problems, written: [] };
+    }
+
+    const folder = path.dirname(path.resolve(libraryFolder));
+    const outputs = new Map<string, string>();
+
+    for (const input of await readInputs(await libraryPrefabFiles(libraryFolder), problems))
+    {
+        const result = generatePrefab(input, await libraryPrefabProject(folder, schema, input, problems));
+        problems.push(...result.problems);
+        result.outputs.forEach((text, file) => outputs.set(file, text));
+    }
+
+    //A file in generated/ that Roux didn't write is someone's work: it stays, and nothing is written. The code class in code/
+    //is the prefab author's, which Roux only gives the slots it lacks.
+    for (const file of outputs.keys())
+    {
+        const existing = await readText(file);
+
+        if ("generated" === path.basename(path.dirname(file)) && "string" === typeof existing && !existing.startsWith(generatedMark))
+            problems.push({ file: file, line: 1, column: 1, severity: "error", message: "Roux didn't write this file, so it doesn't overwrite it: move it away." });
+    }
+
+    if (problems.some(problem => "error" === problem.severity))
+        return { problems: problems, written: [] };
+
+    const written: string[] = [];
+
+    for (const [file, text] of outputs)
+    {
+        if (text === await readText(file))
+            continue;
+
+        await mkdir(path.dirname(file), { recursive: true });
+        await writeFile(file, text, "utf8");
+        written.push(file);
+    }
+
+    return { problems: problems, written: written };
 }
 
 //Generate's first part (Roux plan, 6.1 and 6.2): Project.bechaml becomes source/generated/Project.cmake and Roux's

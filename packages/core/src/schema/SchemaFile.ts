@@ -97,7 +97,10 @@ export async function headersHash(sourceFolder: string): Promise<string>
 {
     const hash = createHash("sha256");
 
-    for (const header of await filesUnder(sourceFolder, ".hpp"))
+    //The predefined prefabs' code is generated from Schema.json, so it never makes Schema.json stale
+    const isPrefab = (header: string) => path.relative(sourceFolder, header).split(path.sep)[0] === "Prefabs";
+
+    for (const header of (await filesUnder(sourceFolder, ".hpp")).filter(header => !isPrefab(header)))
     {
         hash.update(path.relative(sourceFolder, header).split(path.sep).join("/") + "\n");
         hash.update(await readFile(header));

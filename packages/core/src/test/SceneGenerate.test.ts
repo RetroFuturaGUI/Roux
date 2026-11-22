@@ -52,6 +52,16 @@ async function testSchema(libraryFolder: string): Promise<Schema>
                 signals: { OnClick: signal, OnFilesDropped: { connect: "Connect_OnFilesDropped", slot: "typename Signal<std::vector<std::string>, glm::vec2>::Slot" } },
                 slots: { Press: { call: "Press", params: [] } }
             }),
+            Prefab: schemaClass("Prefab", "Widgets/Containers/Prefab.hpp", "widget"),
+            Slider: schemaClass("Slider", "Widgets/Slider.hpp", "widget",
+            {
+                setters:
+                {
+                    MinValue: [{ call: "SetMinValue", params: [{ name: "value", type: "T" }], template: ["T"] }],
+                    Value: [{ call: "SetValue", params: [{ name: "value", type: "T" }, { name: "emitSignal", type: "bool" }], template: ["T"] }]
+                },
+                slots: { StepUp: { call: "StepUp", params: [{ name: "emitSignal", type: "bool" }] } }
+            }),
             WidgetText: schemaClass("WidgetText", "Widgets/Parts/WidgetText.hpp", "part",
             {
                 setters:
@@ -228,7 +238,7 @@ test("gives the user's class only the slots it lacks, keeps its bodies, and rege
     }
 });
 
-test("connects a signal to a function of a named widget with @, and reports what prefabs and @ elements can't do yet", async () =>
+test("connects a signal to a function of a named widget with @, and reports an unknown prefab and a stray @ element", async () =>
 {
     const folder = await sceneProject();
 
@@ -246,11 +256,76 @@ test("connects a signal to a function of a named widget with @, and reports what
         const messages = (await generateProject(folder)).problems.map(problem => path.basename(problem.file) + ":" + problem.line + ":" + problem.column + " " + problem.message);
         assert.deepEqual(messages,
         [
-            "MenuScene.bechaml:11:13 <Prefab:Stepper> places a prefab; prefabs aren't generated yet.",
-            "MenuScene.bechaml:12:13 <@Grow> sets a named child of a prefab instance or a <Layout>; neither is generated yet.",
+            "MenuScene.bechaml:11:13 No prefab is named Stepper; there are none.",
+            "MenuScene.bechaml:12:13 <@Grow> sets a named widget of a placed prefab, so it goes inside <Prefab:…>; in a <Layout> it isn't generated yet.",
             "MenuScene.bechaml:5:58 The scene has no widget named Nobody.",
             "MenuScene.bechaml:5:73 A Button has no function Fly: Press."
         ]);
+    }
+    finally
+    {
+        rmSync(folder, { recursive: true, force: true });
+    }
+});
+
+const stepperPrefab = [
+    "<Prefab Name=\"Stepper\">",
+    "    <Lasagna Rows=1 Columns=2>",
+    "        <Button Name=\"Up\" Row=0 Column=0 OnClick=@Level.StepUp>",
+    "            <Text String=\"+\"/>",
+    "        </Button>",
+    "        <Slider Name=\"Level\" Row=0 Column=1 Type=\"F32\" MinValue=0.0 Value=0.5/>",
+    "    </Lasagna>",
+    "</Prefab>",
+    ""].join("\n");
+
+const stepperInstance = [
+    "        <Prefab:Stepper Name=\"Volume\" Row=0 Column=1>",
+    "            <@Level Type=\"I32\" MinValue=0 Value=5/>",
+    "            <@Up OnClick=Slots.Tick/>",
+    "            <Button>",
+    "                <Text String=\"Up\"/>",
+    "            </Button>",
+    "        </Prefab:Stepper>",
+    ""].join("\n");
+
+test("generates a prefab once and places it in a scene, its entries in cascade order and its Slider's type changed", async () =>
+{
+    const folder = await sceneProject();
+
+    try
+    {
+        mkdirSync(path.join(folder, "source", "code", "Prefabs"), { recursive: true });
+        writeFileSync(path.join(folder, "source", "code", "Prefabs", "Stepper.bechaml"), stepperPrefab);
+        const markup = path.join(folder, "source", "code", "Scenes", "MenuScene.bechaml");
+        writeFileSync(markup, menuScene.replace("        </MenuBar>\n", "        </MenuBar>\n" + stepperInstance));
+
+        const result = await generateProject(folder);
+        assert.deepEqual(result.problems, []);
+
+        //Prefab: its own values with its own type, and its wiring connected once every widget is there
+        const prefab = read(folder, "source/generated/Prefabs/Stepper_prefab.cpp");
+        assert.match(read(folder, "source/generated/Prefabs/Stepper_prefab.hpp"), /struct Stepper\n[\s\S]*WidgetReference<RetroFuturaGUI::Slider> _Level \{ nullptr \};[\s\S]*static Stepper Build\(Container& container/);
+        assert.match(prefab, /built\._Root = prefab->SetRootContainer<RetroFuturaGUI::Lasagna>\("Root", /);
+        assert.match(prefab, /level->SetMinValue<f32>\(0\.0f\);/);
+        assert.match(prefab, /level->SetValue<f32>\(0\.5f, false\);/);
+        assert.match(prefab, /setupLevel\(built, \*root\);\n\n    connectUp\(built\);/);
+        assert.match(prefab, /up->Connect_OnClick\(\[levelTarget = built\._Level\]\(\) \{ if\(!levelTarget\) return; levelTarget->StepUp\(true\); \}, false\);/);
+        assert.match(read(folder, "source/generated/Project.cmake"), /source\/generated\/Prefabs\/Stepper_prefab\.cpp/);
+
+        //Scene: the struct as its member, Build, then each reached widget's own setup
+        const setup = read(folder, "source/generated/impl/Scenes/MenuScene_setup.cpp");
+        assert.match(read(folder, "source/generated/impl/Scenes/MenuScene_p.hpp"), /App::Prefabs::Stepper _volume \{\};[\s\S]*void setupVolumeUp\(\);\n        void setupVolumeLevel\(\);/);
+        assert.match(setup, /_volume = App::Prefabs::Stepper::Build\(rootLasagna, "Volume", RetroFuturaGUI::CellPlacement \{ \._Row = 0, \._Column = 1/);
+        assert.match(setup, /volumeLevel->SetMinValue<i32>\(0\);[\s\S]*volumeLevel->SetValue<i32>\(5, false\);/);
+        assert.match(setup, /void App::MenuScene_p::setupVolumeUp\(\)[\s\S]*volumeUp->GetText\(\)\.SetString\("Up", false\);[\s\S]*volumeUp->Connect_OnClick\(\[this\]\(\) \{ Tick\(\); \}, false\);/);
+
+        writeFileSync(markup, menuScene
+            .replace("        </MenuBar>\n", "        </MenuBar>\n" + stepperInstance.replace("<@Level Type=\"I32\" MinValue=0 Value=5/>", "<@Nope/>"))
+            .replace("<Button Name=\"Fixed\" Enabled=False/>", "<Button Name=\"Fixed\" Enabled=False/>\n            <Slider Name=\"Loose\" MinValue=1/>"));
+        const messages = (await generateProject(folder)).problems.map(problem => path.basename(problem.file) + ":" + problem.line + ":" + problem.column + " " + problem.message);
+        assert.ok(messages.includes("MenuScene.bechaml:15:13 Stepper has no widget named Nope: Root, Up, Level."), messages.join("\n"));
+        assert.ok(messages.some(message => message.endsWith("Slider's MinValue needs the value type first: Type=\"F32\" or another of I8, I16, I32, I64, U8, U16, U32, U64, F32, F64.")), messages.join("\n"));
     }
     finally
     {
