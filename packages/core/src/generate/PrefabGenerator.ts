@@ -74,13 +74,13 @@ class PrefabGenerator extends SceneGenerator
         return this._name + "Code";
     }
 
-    //What a connect function takes beside the struct. Ihe code its slots are called on, when the prefab has any
+    //What a connect function takes beside the struct. The code its slots are called on, when the prefab has any
     private codeParameter(): string
     {
         return this.hasCode() ? ", " + this.codeName() + "_p* code" : "";
     }
 
-    //<Name>Code_p.hpp. Ihe base of the prefab's code, with a copy of the references to its widgets and the slots its
+    //<Name>Code_p.hpp. The base of the prefab's code, with a copy of the references to its widgets and the slots its
     //author's class overrides. The prefab's struct connects to them, so it's a friend
     private codeBaseText(): string
     {
@@ -200,7 +200,7 @@ class PrefabGenerator extends SceneGenerator
         outputs.set(headerFile, this.prefabHeaderText(setups.map(setup => setup.widget), connections.map(connection => connection.widget)));
         outputs.set(sourceFile, this.prefabSourceText(sourceFile, build, setups, connections));
 
-        //Its code. Ihe generated base, and the class of the prefab's author, made once and then only given the slots it lacks
+        //Its code. The generated base, and the class of the prefab's author, made once and then only given the slots it lacks
         if (this.hasCode())
         {
             const project = this._prefabProject;
@@ -318,7 +318,7 @@ class PrefabGenerator extends SceneGenerator
 
     //Statements
 
-    //build(). Ihe root container in the Prefab's place, its values, its widgets' setups, then their signals
+    //build(). The root container in the Prefab's place, its values, its widgets' setups, then their signals
     private prefabBuildStatements(rootNode: WidgetNode): Statement[]
     {
         const consumed = new Set<Attribute>(rootNode.element.attributes.filter(attribute => "Name" === attribute.name));
