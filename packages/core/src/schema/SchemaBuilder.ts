@@ -251,6 +251,11 @@ function readMethod(node: AstNode, template: string[] | undefined): RawMethod
     const inner = node.inner ?? [];
     const params = inner.filter(child => "ParmVarDecl" === child.kind).map(child => parameterOf(child));
     const comment = inner.find(child => "FullComment" === child.kind);
+    const [onlyParameter] = params;
+
+    //A lone ColorState is the value set (a flash's On="Clicked"), not the state Colors:Hover=… names
+    if (onlyParameter && 1 === params.length)
+        delete onlyParameter.isState;
 
     return {
         name: node.name ?? "",

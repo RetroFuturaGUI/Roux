@@ -64,6 +64,7 @@ async function testSchema(libraryFolder: string): Promise<Schema>
             }),
             WidgetText: schemaClass("WidgetText", "Widgets/Parts/WidgetText.hpp", "part",
             {
+                parts: { Glow: { getter: "GetGlow", type: "Glow" } },
                 setters:
                 {
                     String: [{ call: "SetString", params: [{ name: "string", type: "std::string_view" }, { name: "emitSignal", type: "bool" }] }],
@@ -72,7 +73,22 @@ async function testSchema(libraryFolder: string): Promise<Schema>
                     Image: [{ call: "SetImage", params: [{ name: "path", type: "std::string_view" }] }]
                 }
             }),
-            Background: schemaClass("Background", "Widgets/Parts/Background.hpp", "part", { setters: { Colors: [colors], CornerRadii: [{ call: "SetCornerRadii", params: [{ name: "radii", type: "glm::vec4" }] }], Image: [{ call: "SetImage", params: [{ name: "imagePath", type: "std::string_view" }] }] } }),
+            Background: schemaClass("Background", "Widgets/Parts/Background.hpp", "part", { parts: { Glow: { getter: "GetGlow", type: "Glow" } }, setters: { Colors: [colors], CornerRadii: [{ call: "SetCornerRadii", params: [{ name: "radii", type: "glm::vec4" }] }], Image: [{ call: "SetImage", params: [{ name: "imagePath", type: "std::string_view" }] }] } }),
+            Glow: schemaClass("Glow", "Shaders/Glow.hpp", "part", { parts: { Flash: { getter: "GetFlash", type: "Flash" } }, setters: { Colors: [colors] } }),
+            Flash: schemaClass("Flash", "Shaders/Flash.hpp", "part",
+            {
+                setters:
+                {
+                    On: [{ call: "SetOn", params: [{ name: "state", type: "ColorState" }] }],
+                    Opacities: [{ call: "SetOpacities", params: [{ name: "opacities", type: "std::span<const f32>" }] }],
+                    Widths: [{ call: "SetWidths", params: [{ name: "widths", type: "std::span<const f32>" }] }],
+                    Loop: [{ call: "SetLoop", params: [{ name: "firstStep", type: "uSize" }, { name: "lastStep", type: "uSize" }] }],
+                    Repeat: [{ call: "SetRepeat", params: [{ name: "repeatCount", type: "uSize" }] }],
+                    StartTime: [{ call: "SetStartTime", params: [{ name: "time", type: "std::chrono::milliseconds" }] }],
+                    LoopTime: [{ call: "SetLoopTime", params: [{ name: "time", type: "std::chrono::milliseconds" }] }],
+                    EndTime: [{ call: "SetEndTime", params: [{ name: "time", type: "std::chrono::milliseconds" }] }]
+                }
+            }),
             CellPlacement: schemaClass("CellPlacement", "Widgets/Containers/Lasagna.hpp", "placement", { fields: { Row: { member: "_Row", type: "u32", default: "0" }, Column: { member: "_Column", type: "u32", default: "0" }, SizingMode: { member: "_SizingMode", type: "SizingMode", default: "\"FILL\"" } } }),
             AxisDefinition: schemaClass("AxisDefinition", "Widgets/Containers/Lasagna.hpp", "struct", { fields: { Rows: { member: "_RowDefinition", type: "std::vector<f32>", default: "{ }" }, Columns: { member: "_ColumnDefinition", type: "std::vector<f32>", default: "{ }" } } }),
             "MenuBar::FlexDefinition": schemaClass("MenuBar::FlexDefinition", "Widgets/Containers/MenuBar.hpp", "struct", { fields: { FlexSizing: { member: "_FlexSizing", type: "FlexSizing", default: "\"Fixed\"" }, Width: { member: "_Width", type: "f32", default: "1.0" } } })
@@ -364,6 +380,43 @@ test("reports a scene's mistakes where they are, and leaves a file it didn't wri
         const refused = await generateProject(folder);
         assert.deepEqual(refused.problems.map(problem => path.basename(problem.file) + " " + problem.message), ["OtherScene_p.hpp Roux didn't write this file, so it doesn't overwrite it: move it away, or rename the scene."]);
         assert.equal(read(folder, "source/generated/impl/Scenes/OtherScene_p.hpp"), "//Written by hand.\n");
+    }
+    finally
+    {
+        rmSync(folder, { recursive: true, force: true });
+    }
+});
+
+test("generates a glow's flash, and checks its steps, loop and times and that only a Border's and a Background's glows grow", async () =>
+{
+    const folder = await sceneProject();
+    const background = "<Background Colors={ 1.0, 0.5, 0.0 } CornerRadii={ 4.0, 4.0, 4.0, 4.0 }/>";
+    const text = "<Text String=\"OK\" FontSize=20.0 Colors:Hover=#FF000080/>";
+
+    try
+    {
+        const markup = path.join(folder, "source", "code", "Scenes", "MenuScene.bechaml");
+        writeFileSync(markup, menuScene.replace(background, "<Background><Glow><Flash On=\"Clicked\" Opacities={ 1.0, 0.6, 1.0, 0.0 } Widths={ 8.0, 3.0, 8.0, 0.0 } Loop={ 1, 2 } Repeat=3 StartTime=60 LoopTime=300 EndTime=400/></Glow></Background>"));
+        const result = await generateProject(folder);
+        assert.deepEqual(result.problems, []);
+
+        const setup = read(folder, "source/generated/impl/Scenes/MenuScene_setup.cpp");
+        assert.match(setup, /GetBackground\(\)\.GetGlow\(\)\.GetFlash\(\)\.SetOn\(RetroFuturaGUI::ColorState::Clicked\);/);
+        assert.match(setup, /GetFlash\(\)\.SetOpacities\(std::array \{ 1\.0f, 0\.6f, 1\.0f, 0\.0f \}\);/);
+        assert.match(setup, /GetFlash\(\)\.SetLoop\(1, 2\);/);
+        assert.match(setup, /GetFlash\(\)\.SetLoopTime\(std::chrono::milliseconds\(300\)\);/);
+
+        writeFileSync(markup, menuScene
+            .replace(text, "<Text String=\"OK\"><Glow><Flash Opacities={ 1.0, 0.0 } Widths={ 4.0, 0.0 } StartTime=60/></Glow></Text>")
+            .replace(background, "<Background><Glow><Flash Opacities={ 1.0, 0.6, 0.0 } Widths={ 8.0, 0.0 } Loop={ 1, 3 }/></Glow></Background>"));
+        const messages = (await generateProject(folder)).problems.map(problem => problem.message);
+        assert.deepEqual(messages,
+        [
+            "Only the glows of a Border and a Background grow, so this <Flash> takes no Widths.",
+            "This <Flash> has an ending, so it needs EndTime in milliseconds.",
+            "Widths gives 2 steps, but Opacities 3: give every step both.",
+            "Loop takes its first and its last step among the 3, the first not after the last: Loop={ 1, 2 }."
+        ]);
     }
     finally
     {

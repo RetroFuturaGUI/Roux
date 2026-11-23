@@ -54,6 +54,7 @@ export class ConversionError extends Error
 
 export const cppKeywords = new Set(["alignas", "alignof", "and", "asm", "auto", "bool", "break", "case", "catch", "char", "class", "const", "consteval", "constexpr", "constinit", "continue", "decltype", "default", "delete", "do", "double", "else", "enum", "explicit", "export", "extern", "false", "float", "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "not", "nullptr", "operator", "or", "private", "protected", "public", "register", "requires", "return", "short", "signed", "sizeof", "static", "struct", "switch", "template", "this", "throw", "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void", "volatile", "while", "xor"]);
 
+const growingGlowOwners = new Set(["RetroFuturaGUI::Border", "RetroFuturaGUI::Background"]);
 const isEmitSignal = (parameter: SchemaParameter) => "emitSignal" === parameter.name && "bool" === parameter.type;
 
 //A parameter naming a file the library loads, such as SetImage(path) or an SvgImage's SvgImagePath
@@ -288,7 +289,8 @@ export abstract class MarkupGenerator
     }
 
     //A part's values and its own parts: <Indicator><Background Colors=…/></Indicator> is GetIndicator().GetBackground().
-    protected partStatements(owner: SchemaClass, element: Element, target: string): Statement[]
+    //ownerOwner holds the owner when the owner is a part itself, as a glow's Border holds the glow of a <Flash>
+    protected partStatements(owner: SchemaClass, element: Element, target: string, ownerOwner?: SchemaClass): Statement[]
     {
         const part = owner.parts[element.name];
         const partClass = part ? this._schema.classes[part.type] : undefined;
@@ -298,6 +300,9 @@ export abstract class MarkupGenerator
 
         if (element.value)
             this.error(element.value, "A part holds values as attributes, not as its text.");
+
+        if ("Flash" === part.type)
+            this.checkFlash(element, ownerOwner);
 
         const partTarget = target + part.getter + "().";
         const statements = this.attributeStatements(partClass, element.name, element.attributes, partTarget);
@@ -310,10 +315,66 @@ export abstract class MarkupGenerator
                 continue;
             }
 
-            statements.push(...this.partStatements(partClass, child, partTarget));
+            statements.push(...this.partStatements(partClass, child, partTarget, owner));
         }
 
         return statements;
+    }
+
+    //A flash's steps, loop and times have to fit together (.bechaml/Plan.md 2.6). Lists given by reference aren't counted
+    private checkFlash(element: Element, glowOwner: SchemaClass | undefined): void
+    {
+        const find = (name: string) => element.attributes.find(attribute => name === attribute.name);
+        const opacities = find("Opacities");
+        const widths = find("Widths");
+
+        if (!opacities)
+        {
+            this.error(element, "A <Flash> needs Opacities, one per step: Opacities={ 1.0, 0.0 }.");
+            return;
+        }
+
+        if (widths && !growingGlowOwners.has(glowOwner?.cpp ?? ""))
+            this.error(widths, "Only the glows of a Border and a Background grow, so this <Flash> takes no Widths.");
+
+        if ("List" !== opacities.value?.kind)
+            return;
+
+        const stepCount = opacities.value.items.length;
+
+        if ("List" === widths?.value?.kind && stepCount !== widths.value.items.length)
+            this.error(widths.value, "Widths gives " + widths.value.items.length + " steps, but Opacities " + stepCount + ": give every step both.");
+
+        const loop = find("Loop");
+        let loopSteps: { first: number; last: number } | undefined;
+
+        if (loop)
+        {
+            const items = "List" === loop.value?.kind ? loop.value.items : [];
+            const [first, last] = items.map(item => "Integer" === item.kind ? item.value : Number.NaN);
+
+            if (2 !== items.length || undefined === first || undefined === last || !(first <= last) || stepCount <= last)
+            {
+                this.error(loop.value ?? loop, "Loop takes its first and its last step among the " + stepCount + ", the first not after the last: Loop={ 1, 2 }.");
+                return;
+            }
+
+            loopSteps = { first: first, last: last };
+        }
+
+        //Without a loop the last step is the ending. A section without steps ignores its time
+        const sections: [string, number, string][] =
+        [
+            ["StartTime", loopSteps ? loopSteps.first : stepCount - 1, "a flash-up"],
+            ["LoopTime", loopSteps ? 1 : 0, "a loop"],
+            ["EndTime", loopSteps ? stepCount - loopSteps.last - 1 : 1, "an ending"]
+        ];
+
+        for (const [name, sectionStepCount, section] of sections)
+        {
+            if (0 < sectionStepCount && !find(name))
+                this.error(element, "This <Flash> has " + section + ", so it needs " + name + " in milliseconds.");
+        }
     }
 
     //A struct written with every field named, in their order: what the element gives, else the field's default.
