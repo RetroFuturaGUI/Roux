@@ -28,6 +28,7 @@ export interface SceneProject
     readonly userHeader: string | undefined; //The user's <Name>.hpp as it is now; undefined when it doesn't exist yet.
     readonly userSource: string | undefined;
     readonly prefabs: ReadonlyMap<string, PrefabModel>; //Every prefab a scene may place, RetroFuturaGUI's and the project's, by name
+    readonly aestheticNames?: ReadonlySet<string>; //Every Aesthetic the project's files define, for Aesthetic=; left out, none are checked
     readonly flavorNames?: ReadonlySet<string>; //Every flavor the project's Flavors files define, for Flavors.X; left out, none are checked
 }
 
@@ -233,6 +234,7 @@ export class SceneGenerator extends MarkupGenerator
         this._scene = scene;
         this._project = project;
         this._flavorNames = project.flavorNames;
+        this._aestheticNames = project.aestheticNames;
     }
 
     generate(): SceneResult

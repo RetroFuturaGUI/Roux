@@ -27,6 +27,7 @@ export interface WindowProject
     readonly assetFolders: readonly string[]; //The project's, relative to it, as Project.bechaml lists them
     readonly userHeader: string | undefined;
     readonly userSource: string | undefined;
+    readonly aestheticNames?: ReadonlySet<string>; //Every Aesthetic the project's files define, for Aesthetic=; left out, none are checked.
     readonly flavorNames?: ReadonlySet<string>; //Every flavor the project's Flavors files define, for Flavors.X. left out, none are checked
 }
 
@@ -430,6 +431,7 @@ class WindowGenerator extends MarkupGenerator
         this._window = window;
         this._project = project;
         this._flavorNames = project.flavorNames;
+        this._aestheticNames = project.aestheticNames;
     }
 
     generate(): WindowResult

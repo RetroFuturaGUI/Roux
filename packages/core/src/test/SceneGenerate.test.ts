@@ -29,6 +29,8 @@ async function testSchema(libraryFolder: string): Promise<Schema>
             TransitionProperty: { cpp: "RetroFuturaGUI::TransitionProperty", header: "Animation/Transition.hpp", values: ["Colors", "CornerRadii", "Size"], isMask: true },
             Easing: { cpp: "RetroFuturaGUI::Easing", header: "Animation/Transition.hpp", values: ["Linear", "EaseOut", "EaseInOut"] },
             BorderEdge: { cpp: "RetroFuturaGUI::BorderEdge", header: "Rectangles/Frame.hpp", values: ["Top", "Bottom"] },
+            WidgetTypeID: { cpp: "RetroFuturaGUI::WidgetTypeID", header: "OpenGlHelpers/IncludeHelper.hpp", values: ["None", "Lasagna", "Button", "Slider"] },
+            StyleScope: { cpp: "RetroFuturaGUI::StyleScope", header: "Styling/StylingManager.hpp", values: ["None", "Popup", "File"] },
             FontSizeUnit: { cpp: "RetroFuturaGUI::FontSizeUnit", header: "Text/FontManager.hpp", values: ["Pixels", "Points"] },
             SizingMode: { cpp: "RetroFuturaGUI::SizingMode", header: "OpenGlHelpers/IncludeHelper.hpp", values: ["FIXED", "FILL"] },
             "MenuBar::FlexSizing": { cpp: "RetroFuturaGUI::MenuBar::FlexSizing", header: "Widgets/Containers/MenuBar.hpp", values: ["Star", "Fixed", "Square"] }
@@ -57,6 +59,7 @@ async function testSchema(libraryFolder: string): Promise<Schema>
                 slots: { Press: { call: "Press", params: [] } }
             }),
             Prefab: schemaClass("Prefab", "Widgets/Containers/Prefab.hpp", "widget"),
+            FileExplorer: schemaClass("FileExplorer", "Widgets/Window/Dialog/FileExplorer/FileExplorer.hpp", "popup", { popupScopes: ["File"] }),
             RadioButtonGroup: schemaClass("RadioButtonGroup", "Widgets/Containers/RadioButtonGroup.hpp", "widget",
             {
                 setters: { Rows: [{ call: "SetAxisDefinitions", params: [{ name: "rowDefinitions", type: "std::span<const f32>" }, { name: "columnDefinitions", type: "std::span<const f32>" }], group: ["Rows", "Columns"], defaults: { columnDefinitions: "1" } }] },
@@ -490,6 +493,70 @@ test("hands a setter a list of whatever it takes several of, and refuses a list 
             "This takes one of \"FIXED\", \"FILL\".",
             "This takes a list the setter changes (std::span<f32>), which markup can't hand over."
         ]);
+    }
+    finally
+    {
+        rmSync(folder, { recursive: true, force: true });
+    }
+});
+
+test("registers an Aesthetic's entries by widget type, AnyWidget and popup type, and gives a scene the Aesthetic it names", async () =>
+{
+    const folder = await sceneProject();
+    const aesthetic = path.join(folder, "source", "code", "Aesthetics", "Sleek.bechaml");
+    const markup = path.join(folder, "source", "code", "Scenes", "MenuScene.bechaml");
+    const sleek = [
+        "<Aesthetic Name=\"Sleek\">",
+        "    <AnyWidget>",
+        "        <Background CornerRadii={ 2.0, 2.0, 2.0, 2.0 }/>",
+        "    </AnyWidget>",
+        "    <Button Size={ 40.0, 20.0, 0.01 }>",
+        "        <Background Colors:Hover=#FF0000/>",
+        "    </Button>",
+        "    <FileExplorer>",
+        "        <Button>",
+        "            <Background Colors=#00FF00/>",
+        "        </Button>",
+        "        <Title>",
+        "            <Background Colors=#0000FF/>",
+        "        </Title>",
+        "    </FileExplorer>",
+        "    <Popup>",
+        "        <AnyWidget>",
+        "            <Background CornerRadii={ 6.0, 6.0, 6.0, 6.0 }/>",
+        "        </AnyWidget>",
+        "    </Popup>",
+        "</Aesthetic>",
+        ""].join("\n");
+
+    try
+    {
+        mkdirSync(path.dirname(aesthetic), { recursive: true });
+        writeFileSync(aesthetic, sleek);
+        writeFileSync(markup, menuScene.replace("<Scene Name=\"MenuScene\" OnUpdate=Slots.Tick>", "<Scene Name=\"MenuScene\" Aesthetic=Aesthetics.Sleek OnUpdate=Slots.Tick>"));
+        const result = await generateProject(folder);
+        assert.deepEqual(result.problems, []);
+
+        const source = read(folder, "source/generated/impl/Styles/Sleek_aesthetic.cpp");
+        assert.ok(source.includes("void App::RegisterAestheticSleek()\n"));
+        assert.ok(source.includes("RetroFuturaGUI::Flavor& flavor { RetroFuturaGUI::StylingManager::GetAesthetic(\"Sleek\").GetAnyWidget() };\n        flavor.GetBackground().SetCornerRadii(glm::vec4(2.0f, 2.0f, 2.0f, 2.0f));"));
+        assert.ok(source.includes("RetroFuturaGUI::Flavor& flavor { RetroFuturaGUI::StylingManager::GetAesthetic(\"Sleek\").GetEntry(RetroFuturaGUI::WidgetTypeID::Button) };\n"));
+        assert.ok(source.includes("        flavor.SetSize(glm::vec3(40.0f, 20.0f, 0.01f));\n"));
+        assert.ok(source.includes("RetroFuturaGUI::Flavor& flavor { RetroFuturaGUI::StylingManager::GetAesthetic(\"Sleek\", RetroFuturaGUI::StyleScope::File).GetEntry(RetroFuturaGUI::WidgetTypeID::Button) };"), "a popup type's entries are its scope's");
+        assert.ok(source.includes("RetroFuturaGUI::Flavor& flavor { RetroFuturaGUI::StylingManager::GetAesthetic(\"Sleek\", RetroFuturaGUI::StyleScope::File).GetTitle() };"));
+        assert.ok(source.includes("RetroFuturaGUI::Flavor& flavor { RetroFuturaGUI::StylingManager::GetAesthetic(\"Sleek\", RetroFuturaGUI::StyleScope::Popup).GetAnyWidget() };"), "<Popup> is every popup's");
+        assert.ok(read(folder, "source/generated/impl/Styles/Styles.cpp").includes("    RegisterAestheticSleek();\n"));
+        assert.ok(read(folder, "source/generated/impl/Scenes/MenuScene_setup.cpp").includes("_scene->SetAesthetic(\"Sleek\");"));
+
+        writeFileSync(aesthetic, sleek.replace("Name=\"Sleek\"", "Name=\"Shiny\"").replace("    <Button Size", "    <Wheel/>\n    <Title/>\n    <Button Size"));
+        writeFileSync(markup, menuScene.replace("<Scene Name=\"MenuScene\" OnUpdate=Slots.Tick>", "<Scene Name=\"MenuScene\" Aesthetic=Aesthetics.Sleek OnUpdate=Slots.Tick>"));
+        assert.deepEqual((await generateProject(folder)).problems.map(problem => problem.message).sort(),
+        [
+            "<Title> isn't a widget type, <AnyWidget> or a popup type.",
+            "<Wheel> isn't a widget type, <AnyWidget> or a popup type.",
+            "No Aesthetic is named Sleek: Shiny.",
+            "The Aesthetic is named Shiny, but its file Sleek.bechaml: the two have to match."
+        ].sort());
     }
     finally
     {

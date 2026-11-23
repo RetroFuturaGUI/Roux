@@ -89,7 +89,8 @@ export abstract class MarkupGenerator
     protected readonly _files = new Map<string, AssetKind | undefined>(); //The files the markup names, as the built app finds them.
     private readonly _assetFolders: readonly string[]; //The project's, relative to it, in the order files are looked up.
     private readonly _lineMap: LineMap;
-    protected _flavorNames: ReadonlySet<string> | undefined; //every flavor the project's Flavors files define, to check Flavors.X; undefined checks none.
+    protected _flavorNames: ReadonlySet<string> | undefined;
+    protected _aestheticNames: ReadonlySet<string> | undefined; //every Aesthetic the project's files define, to check Aesthetic=; undefined checks none. //every flavor the project's Flavors files define, to check Flavors.X; undefined checks none.
 
     constructor(file: string, text: string, folder: string, schema: Schema, assetFolders: readonly string[])
     {
@@ -295,6 +296,12 @@ export abstract class MarkupGenerator
         if (undefined === name)
         {
             this.error(value ?? attribute, "Aesthetic names one: Aesthetic=Aesthetics.ColorfulPop.");
+            return [];
+        }
+
+        if (this._aestheticNames && !this._aestheticNames.has(name))
+        {
+            this.error(value ?? attribute, "No Aesthetic is named " + name + (this._aestheticNames.size ? ": " + [...this._aestheticNames].join(", ") + "." : "; there are none."));
             return [];
         }
 
