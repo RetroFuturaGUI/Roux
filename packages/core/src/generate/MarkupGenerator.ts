@@ -886,6 +886,34 @@ export abstract class MarkupGenerator
             return "std::array { " + numbers.join(", ") + " }";
         }
 
+        //{ } is an array of whatever the setter takes several of (.bechaml/Plan.md 2.2), each item read as one of them
+        const list = /^std::(span|vector)<(const )?(.+)>$/.exec(type);
+
+        if (list?.[3])
+        {
+            const [, container, constness, element] = list;
+
+            if ("span" === container && !constness)
+                throw new ConversionError(value, "This takes a list the setter changes (" + type + "), which markup can't hand over.");
+
+            if ("List" !== value.kind)
+                throw new ConversionError(value, "This takes a list: { … }.");
+
+            const items = value.items.map(item => this.convert(item, element, owner));
+
+            if ("vector" === container)
+                return "{ " + items.join(", ") + " }";
+
+            const elementType = this.findEnum(element, owner)?.cpp ?? element;
+
+            if (0 === items.length)
+                return "std::span<const " + elementType + "> {}";
+
+            //Named, as the items alone may not say it: "Chrome" is a const char*, not a std::string_view
+            this._headers.add("<array>");
+            return "std::array<" + elementType + ", " + items.length + "> { " + items.join(", ") + " }";
+        }
+
         const enumeration = this.findEnum(type, owner);
 
         if (enumeration)

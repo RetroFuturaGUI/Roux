@@ -53,6 +53,16 @@ async function testSchema(libraryFolder: string): Promise<Schema>
                 slots: { Press: { call: "Press", params: [] } }
             }),
             Prefab: schemaClass("Prefab", "Widgets/Containers/Prefab.hpp", "widget"),
+            ComboBox: schemaClass("ComboBox", "Widgets/ComboBox.hpp", "widget",
+            {
+                setters:
+                {
+                    Items: [{ call: "SetItems", params: [{ name: "items", type: "std::span<const std::string_view>" }, { name: "emitSignal", type: "bool" }] }],
+                    Modes: [{ call: "SetModes", params: [{ name: "modes", type: "std::span<const SizingMode>" }] }],
+                    Names: [{ call: "SetNames", params: [{ name: "names", type: "std::vector<std::string>" }] }],
+                    Tracks: [{ call: "SetTracks", params: [{ name: "tracks", type: "std::span<f32>" }] }]
+                }
+            }),
             Slider: schemaClass("Slider", "Widgets/Slider.hpp", "widget",
             {
                 setters:
@@ -417,6 +427,37 @@ test("generates a glow's flash, and checks its steps, loop and times and that on
             "This <Flash> has an ending, so it needs EndTime in milliseconds.",
             "Widths gives 2 steps, but Opacities 3: give every step both.",
             "Loop takes its first and its last step among the 3, the first not after the last: Loop={ 1, 2 }."
+        ]);
+    }
+    finally
+    {
+        rmSync(folder, { recursive: true, force: true });
+    }
+});
+
+test("hands a setter a list of whatever it takes several of, and refuses a list it would change", async () =>
+{
+    const folder = await sceneProject();
+
+    try
+    {
+        const markup = path.join(folder, "source", "code", "Scenes", "MenuScene.bechaml");
+        const comboBox = (attributes: string) => menuScene.replace("    </Lasagna>", "        <ComboBox Name=\"Pick\" Row=0 Column=1 " + attributes + "/>\n    </Lasagna>");
+        writeFileSync(markup, comboBox("Items={ \"Chrome\", \"Liquid metal\" } Modes={ \"FIXED\", \"FILL\" } Names={ \"A\" }"));
+        const result = await generateProject(folder);
+        assert.deepEqual(result.problems, []);
+
+        const setup = read(folder, "source/generated/impl/Scenes/MenuScene_setup.cpp");
+        assert.ok(setup.includes("pick->SetItems(std::array<std::string_view, 2> { \"Chrome\", \"Liquid metal\" }, false);"), "strings are named as the setter's type, and markup never fires a signal");
+        assert.ok(setup.includes("pick->SetModes(std::array<RetroFuturaGUI::SizingMode, 2> { RetroFuturaGUI::SizingMode::FIXED, RetroFuturaGUI::SizingMode::FILL });"), "enum values are read as the enum");
+        assert.ok(setup.includes("pick->SetNames({ \"A\" });"));
+
+        writeFileSync(markup, comboBox("Items=\"Chrome\" Modes={ \"Sideways\" } Tracks={ 1.0 }"));
+        assert.deepEqual((await generateProject(folder)).problems.map(problem => problem.message),
+        [
+            "This takes a list: { … }.",
+            "This takes one of \"FIXED\", \"FILL\".",
+            "This takes a list the setter changes (std::span<f32>), which markup can't hand over."
         ]);
     }
     finally
