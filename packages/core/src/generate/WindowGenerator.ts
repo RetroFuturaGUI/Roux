@@ -27,6 +27,7 @@ export interface WindowProject
     readonly assetFolders: readonly string[]; //The project's, relative to it, as Project.bechaml lists them
     readonly userHeader: string | undefined;
     readonly userSource: string | undefined;
+    readonly flavorNames?: ReadonlySet<string>; //Every flavor the project's Flavors files define, for Flavors.X. left out, none are checked
 }
 
 export interface WindowResult
@@ -374,6 +375,7 @@ export function startFiles(folder: string, namespace: string, startWindow: strin
     [
         generatedMark + " from " + projectFile + ". Generate rewrites it.",
         "#include \"Start.hpp\"",
+        "#include \"Styles.hpp\"",
         "#include \"" + startWindow + ".hpp\"",
         "#include \"FontManager.hpp\"",
         "#include \"PlatformBridge.hpp\"",
@@ -393,6 +395,7 @@ export function startFiles(folder: string, namespace: string, startWindow: strin
         "",
         "    RetroFuturaGUI::GlfwInit();",
         "    RetroFuturaGUI::FontManager::Init();",
+        "    RegisterStyles(); //every flavor, before any widget looks for one",
         "",
         "    {",
         "        std::vector<std::unique_ptr<GeneratedWindow>> windows {};",
@@ -426,6 +429,7 @@ class WindowGenerator extends MarkupGenerator
         super(window.file, window.text, project.folder, project.schema, project.assetFolders);
         this._window = window;
         this._project = project;
+        this._flavorNames = project.flavorNames;
     }
 
     generate(): WindowResult

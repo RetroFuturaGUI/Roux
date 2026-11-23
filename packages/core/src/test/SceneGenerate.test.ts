@@ -100,6 +100,17 @@ async function testSchema(libraryFolder: string): Promise<Schema>
                 }
             }),
             Background: schemaClass("Background", "Widgets/Parts/Background.hpp", "part", { parts: { Glow: { getter: "GetGlow", type: "Glow" } }, setters: { GlassNoise: [{ call: "SetGlassNoise", params: [{ name: "noise", type: "GlassNoise" }] }], Gaps: [{ call: "SetGaps", params: [{ name: "gaps", type: "std::span<const BorderGap>" }] }], PathFill: [{ call: "SetImagePathFill", params: [{ name: "name", type: "std::string_view" }, { name: "fill", type: "SvgPathFill" }] }], Colors: [colors], CornerRadii: [{ call: "SetCornerRadii", params: [{ name: "radii", type: "glm::vec4" }] }], Image: [{ call: "SetImage", params: [{ name: "imagePath", type: "std::string_view" }] }] } }),
+            Flavor: schemaClass("Flavor", "Styling/Flavor.hpp", "flavor",
+            {
+                parts: { Background: { getter: "GetBackground", type: "FlavorPart" } },
+                setters:
+                {
+                    Size: [{ call: "SetSize", params: [{ name: "size", type: "glm::vec3" }] }],
+                    Transition: [{ call: "SetTransition", params: [{ name: "properties", type: "TransitionProperty" }, { name: "transition", type: "Transition" }] }]
+                }
+            }),
+            FlavorPart: schemaClass("FlavorPart", "Styling/Flavor.hpp", "part", { parts: { Glow: { getter: "GetGlow", type: "FlavorEffect" } }, setters: { Colors: [colors], CornerRadii: [{ call: "SetCornerRadii", params: [{ name: "radii", type: "glm::vec4" }] }] } }),
+            FlavorEffect: schemaClass("FlavorEffect", "Styling/Flavor.hpp", "part", { parts: { Flash: { getter: "GetFlash", type: "Flash" } }, setters: { Width: [{ call: "SetWidth", params: [{ name: "value", type: "f32" }] }] } }),
             Transition: schemaClass("Transition", "Animation/Transition.hpp", "struct", { fields: { Duration: { member: "_Duration", type: "std::chrono::milliseconds" }, Easing: { member: "_Easing", type: "Easing", default: "\"EaseInOut\"" } } }),
             GlassNoise: schemaClass("GlassNoise", "Shaders/Noise.hpp", "struct", { fields: { CellSize: { member: "_CellSize", type: "f32", default: "128.0" }, Distortion: { member: "_Distortion", type: "f32", default: "12.0" } } }),
             BorderGap: schemaClass("BorderGap", "Rectangles/Frame.hpp", "struct", { fields: { Edge: { member: "_Edge", type: "BorderEdge", default: "\"Top\"" }, Length: { member: "_Length", type: "f32", default: "0.0" }, Repeat: { member: "_Repeat", type: "i32", default: "1" }, CutsBackground: { member: "_CutsBackground", type: "bool", default: "False" } } }),
@@ -479,6 +490,65 @@ test("hands a setter a list of whatever it takes several of, and refuses a list 
             "This takes one of \"FIXED\", \"FILL\".",
             "This takes a list the setter changes (std::span<f32>), which markup can't hand over."
         ]);
+    }
+    finally
+    {
+        rmSync(folder, { recursive: true, force: true });
+    }
+});
+
+test("registers a Flavors file's flavors in RegisterStyles, and gives a widget the flavors it names", async () =>
+{
+    const folder = await sceneProject();
+    const flavors = path.join(folder, "source", "code", "Flavors", "Looks.bechaml");
+    const markup = path.join(folder, "source", "code", "Scenes", "MenuScene.bechaml");
+    const looks = [
+        "<Flavors>",
+        "    <Flavor Name=\"Metal\" Size={ 32.0, 32.0, 0.05 }>",
+        "        <Transition Properties=\"Colors\" Duration=150/>",
+        "        <Background Colors:Hover=#FF0000 CornerRadii={ 4.0, 4.0, 4.0, 4.0 }>",
+        "            <Glow Width=6.0>",
+        "                <Flash Opacities={ 1.0, 0.0 } Widths={ 4.0, 0.0 } StartTime=60 EndTime=400/>",
+        "            </Glow>",
+        "        </Background>",
+        "    </Flavor>",
+        "    <Flavor Name=\"Default\">",
+        "        <Background CornerRadii={ 2.0, 2.0, 2.0, 2.0 }/>",
+        "    </Flavor>",
+        "</Flavors>",
+        ""].join("\n");
+
+    try
+    {
+        mkdirSync(path.dirname(flavors), { recursive: true });
+        writeFileSync(flavors, looks);
+        writeFileSync(markup, menuScene.replace("<Button Name=\"OkButton\" Row=1 Column=1", "<Button Name=\"OkButton\" Row=1 Column=1 Flavors={ Flavors.Metal }"));
+        const result = await generateProject(folder);
+        assert.deepEqual(result.problems, []);
+
+        const source = read(folder, "source/generated/impl/Styles/Looks_flavors.cpp");
+        assert.ok(source.includes("void App::RegisterFlavorsLooks()\n"));
+        assert.ok(source.includes("        RetroFuturaGUI::Flavor& flavor { RetroFuturaGUI::StylingManager::GetFlavor(\"Metal\") };\n"));
+        assert.ok(source.includes("        flavor.SetSize(glm::vec3(32.0f, 32.0f, 0.05f));\n"));
+        assert.ok(source.includes("        flavor.GetBackground().SetColors(std::array { glm::vec4(1.0f, 0.0f, 0.0f, 1.0f) }, RetroFuturaGUI::ColorState::Hover);\n"));
+        assert.ok(source.includes("        flavor.GetBackground().GetGlow().GetFlash().SetOpacities(std::array { 1.0f, 0.0f });\n"), "a flavor's glow may flash, and grow");
+        assert.ok(source.includes("        flavor.SetTransition(RetroFuturaGUI::TransitionProperty::Colors, RetroFuturaGUI::Transition { ._Duration = std::chrono::milliseconds(150), ._Easing = RetroFuturaGUI::Easing::EaseInOut });\n"));
+        assert.ok(source.includes("        RetroFuturaGUI::Flavor& flavor { RetroFuturaGUI::StylingManager::GetDefaultFlavor() };\n"), "Default is the flavor every widget falls back to");
+        assert.ok(read(folder, "source/generated/impl/Styles/Styles.cpp").includes("void App::RegisterStyles()\n{\n    RegisterFlavorsLooks();\n}\n"));
+        assert.ok(read(folder, "source/generated/impl/Scenes/MenuScene_setup.cpp").includes("okButton->AddFlavor(\"Metal\");"));
+
+        writeFileSync(path.join(path.dirname(flavors), "More.bechaml"), "<Flavors>\n    <Flavor Name=\"Metal\"/>\n    <Flavor>\n        <Wheel/>\n    </Flavor>\n</Flavors>\n");
+        writeFileSync(markup, menuScene
+            .replace("<Button Name=\"OkButton\" Row=1 Column=1", "<Button Name=\"OkButton\" Row=1 Column=1 Flavors={ Flavors.Nope, Flavors.Default }")
+            .replace("<Text String=\"OK\" FontSize=20.0 Colors:Hover=#FF000080/>", "<Text String=\"OK\" Flavors=Flavors.Metal/>"));
+        assert.deepEqual((await generateProject(folder)).problems.map(problem => problem.message).sort(),
+        [
+            "A flavor is named by a string that is a name: <Flavor Name=\"Primary\">.",
+            "Another Flavors file names a flavor Metal already: " + path.join("source", "code", "Flavors", "Looks.bechaml") + ".",
+            "Every widget has Flavors.Default already, after its own flavors.",
+            "Flavors go on a widget, and reach its parts from there.",
+            "No flavor is named Nope: Metal."
+        ].sort());
     }
     finally
     {

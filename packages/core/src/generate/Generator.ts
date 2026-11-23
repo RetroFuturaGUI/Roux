@@ -15,6 +15,7 @@ import { generatedMark } from "./MarkupGenerator.js";
 import { generatePrefab, generatedPrefabsFolder, prefabName, type PrefabModel, type PrefabProject } from "./PrefabGenerator.js";
 import { generateScene, generatedSceneBase, sceneName, type SceneInput } from "./SceneGenerator.js";
 import { generatedWindowBase, generateWindow, startFiles } from "./WindowGenerator.js";
+import { generateFlavors, stylesFiles, type FlavorsInput } from "./StylesGenerator.js";
 
 export interface GenerateProblem
 {
@@ -100,6 +101,7 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
     const scenes: { file: string; text: string; document: Document }[] = [];
     const windows: { file: string; text: string; document: Document }[] = [];
     const projectPrefabs: SceneInput[] = [];
+    const flavorFiles: FlavorsInput[] = [];
 
     for (const file of await markupFiles(folder))
     {
@@ -116,9 +118,11 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
             windows.push({ file: file, text: text, document: document });
         else if ("Prefab" === document.root?.name)
             projectPrefabs.push({ file: file, text: text, document: document });
+        else if ("Flavors" === document.root?.name)
+            flavorFiles.push({ file: file, text: text, document: document });
     }
 
-    if (0 === scenes.length + windows.length + projectPrefabs.length)
+    if (0 === scenes.length + windows.length + projectPrefabs.length + flavorFiles.length)
     {
         if (startWindow)
             startWindowMistake("<StartWindow> names " + startWindow + ", which isn't a window file.");
@@ -126,7 +130,7 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
         return outputs;
     }
 
-    const first = ([...scenes, ...windows, ...projectPrefabs][0] as { file: string }).file;
+    const first = ([...scenes, ...windows, ...projectPrefabs, ...flavorFiles][0] as { file: string }).file;
     const schemaFile = path.join(folder, "RetroFuturaGUI", schemaFileName);
     const schemaText = await readText(schemaFile);
     const schema = schemaText ? JSON.parse(schemaText) as Schema : undefined;
@@ -142,6 +146,30 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
     {
         problems.push({ file: path.join(folder, projectFileName), line: 1, column: 1, severity: "error", message: "The project's Name " + namespace + " can't name the C++ namespace of its scenes and windows." });
         return outputs;
+    }
+
+    //The flavors first, so every scene, prefab and window can check the ones it names. A name is the project's once
+    const flavorNames = new Map<string, string>();
+    const registerFunctions: string[] = [];
+
+    for (const flavorFile of flavorFiles)
+    {
+        const result = generateFlavors(flavorFile, folder, namespace, schema, assetFolders);
+        problems.push(...result.problems);
+        result.outputs.forEach((text, file) => outputs.set(file, text));
+
+        if (result.registerFunction)
+            registerFunctions.push(result.registerFunction);
+
+        for (const { name } of result.names)
+        {
+            const other = flavorNames.get(name);
+
+            if (undefined !== other)
+                problems.push({ file: flavorFile.file, line: 1, column: 1, severity: "error", message: "Another Flavors file names a flavor " + name + " already: " + other + "." });
+            else
+                flavorNames.set(name, path.relative(folder, flavorFile.file));
+        }
     }
 
     const prefabs = await prefabModels(folder, namespace, schema, assetFolders, projectPrefabs, problems, outputs);
@@ -180,7 +208,7 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
         if (!user)
             continue;
 
-        const result = generateScene(scene, { folder: folder, namespace: namespace, schema: schema, sceneNames: new Set(names.keys()), assetFolders: assetFolders, prefabs: prefabs, ...user });
+        const result = generateScene(scene, { folder: folder, namespace: namespace, schema: schema, sceneNames: new Set(names.keys()), assetFolders: assetFolders, prefabs: prefabs, flavorNames: new Set(flavorNames.keys()), ...user });
         problems.push(...result.problems);
         result.outputs.forEach((text, file) => outputs.set(file, text));
 
@@ -199,7 +227,7 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
         if (!user)
             continue;
 
-        const result = generateWindow(window, { folder: folder, namespace: namespace, schema: schema, scenes: loads, assetFolders: assetFolders, ...user });
+        const result = generateWindow(window, { folder: folder, namespace: namespace, schema: schema, scenes: loads, assetFolders: assetFolders, flavorNames: new Set(flavorNames.keys()), ...user });
         problems.push(...result.problems);
         result.outputs.forEach((text, file) => outputs.set(file, text));
 
@@ -238,6 +266,10 @@ async function markupOutputs(folder: string, namespace: string, startWindow: str
         else
             startWindowMistake("<StartWindow> names " + startWindow + ", which isn't a window file that could be generated.");
     }
+    //Start calls RegisterStyles, and every Flavors file's source is declared in Styles.hpp
+    if (startWindow || 0 < flavorFiles.length)
+        stylesFiles(folder, namespace, registerFunctions).forEach((text, file) => outputs.set(file, text));
+
     const generated = path.join(folder, ...generatedFolder.split("/")) + path.sep;
 
     //A file there that Roux didn't write is someone's work: it stays, and Generate stops.

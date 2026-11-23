@@ -63,7 +63,7 @@ export class ConversionError extends Error
 
 export const cppKeywords = new Set(["alignas", "alignof", "and", "asm", "auto", "bool", "break", "case", "catch", "char", "class", "const", "consteval", "constexpr", "constinit", "continue", "decltype", "default", "delete", "do", "double", "else", "enum", "explicit", "export", "extern", "false", "float", "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "not", "nullptr", "operator", "or", "private", "protected", "public", "register", "requires", "return", "short", "signed", "sizeof", "static", "struct", "switch", "template", "this", "throw", "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void", "volatile", "while", "xor"]);
 
-const growingGlowOwners = new Set(["RetroFuturaGUI::Border", "RetroFuturaGUI::Background"]);
+const growingGlowOwners = new Set(["RetroFuturaGUI::Border", "RetroFuturaGUI::Background", "RetroFuturaGUI::FlavorPart"]); //a flavor's part may style a border's or a background's glow.
 const isEmitSignal = (parameter: SchemaParameter) => "emitSignal" === parameter.name && "bool" === parameter.type;
 
 //A parameter naming a file the library loads, such as SetImage(path) or an SvgImage's SvgImagePath
@@ -89,6 +89,7 @@ export abstract class MarkupGenerator
     protected readonly _files = new Map<string, AssetKind | undefined>(); //The files the markup names, as the built app finds them.
     private readonly _assetFolders: readonly string[]; //The project's, relative to it, in the order files are looked up.
     private readonly _lineMap: LineMap;
+    protected _flavorNames: ReadonlySet<string> | undefined; //every flavor the project's Flavors files define, to check Flavors.X; undefined checks none.
 
     constructor(file: string, text: string, folder: string, schema: Schema, assetFolders: readonly string[])
     {
@@ -633,7 +634,7 @@ export abstract class MarkupGenerator
         for (const attribute of attributes.filter(candidate => "Flavors" === candidate.name))
         {
             take(attribute);
-            this.error(attribute, "Flavors aren't generated yet.");
+            statements.push(...this.flavorStatements(schemaClass, attribute, target));
         }
 
         //RotateX, RotateY and RotateZ, in degrees, are one rotation: SetRotation(glm::vec3(x, y, z)), 0 for an axis left out.
@@ -699,6 +700,50 @@ export abstract class MarkupGenerator
 
             if (undefined !== call)
                 statements.push({ text: target + call + ";", line: this.lineOf(attribute) });
+        }
+
+        return statements;
+    }
+
+    //Flavors={ Flavors.Primary, Flavors.Wide } on a widget. Each added in its order, the first winning over the later ones
+    private flavorStatements(schemaClass: SchemaClass, attribute: Attribute, target: string): Statement[]
+    {
+        if ("widget" !== schemaClass.role)
+        {
+            this.error(attribute, "Flavors go on a widget, and reach its parts from there.");
+            return [];
+        }
+
+        const value = attribute.value;
+        const references = "List" === value?.kind ? value.items : value ? [value] : [];
+        const statements: Statement[] = [];
+
+        if (0 === references.length)
+            this.error(value ?? attribute, "Flavors names them: Flavors={ Flavors.Primary, Flavors.Wide }.");
+
+        for (const reference of references)
+        {
+            const [kind, name, ...rest] = "Reference" === reference.kind && !reference.arguments ? reference.segments : [];
+
+            if ("Flavors" !== kind || !name || 0 < rest.length)
+            {
+                this.error(reference, "A flavor is named Flavors.<Name>, such as Flavors.Primary.");
+                continue;
+            }
+
+            if ("Default" === name)
+            {
+                this.error(reference, "Every widget has Flavors.Default already, after its own flavors.");
+                continue;
+            }
+
+            if (this._flavorNames && !this._flavorNames.has(name))
+            {
+                this.error(reference, "No flavor is named " + name + (this._flavorNames.size ? ": " + [...this._flavorNames].filter(known => "Default" !== known).join(", ") + "." : "; there are none."));
+                continue;
+            }
+
+            statements.push({ text: target + "AddFlavor(" + JSON.stringify(name) + ");", line: this.lineOf(reference) });
         }
 
         return statements;
