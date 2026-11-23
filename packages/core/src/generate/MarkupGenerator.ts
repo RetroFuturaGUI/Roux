@@ -20,7 +20,7 @@ export interface Statement
     readonly line?: number;
 }
 
-//A <Slot>, or a slot that loads a scene.
+//A <Slot>.
 export interface SlotDeclaration
 {
     readonly name: string;
@@ -28,7 +28,6 @@ export interface SlotDeclaration
     readonly params: string;
     readonly paramCount: number;
     readonly isAsync: boolean;
-    readonly loadsScene?: string;
 }
 
 //What the user's class files are made from, and what they hold now: undefined when they don't exist yet.
@@ -257,7 +256,7 @@ export abstract class MarkupGenerator
             "",
             slot.returnType + " " + qualified + "::" + slot.name + "(" + slot.params.replace(/\s*=[^,]*/g, "") + ")",
             "{",
-            ...(slot.loadsScene ? ["    loadScene(" + JSON.stringify(slot.loadsScene) + ");"] : "void" === slot.returnType ? [] : ["    return {};"]),
+            ...("void" === slot.returnType ? [] : ["    return {};"]),
             "}"
         ]);
 

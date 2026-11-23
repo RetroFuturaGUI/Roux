@@ -140,6 +140,25 @@ test("reads a prefab, an instance's named children with @, and calls on named wi
     assert.deepEqual(layout.root?.elements.map(child => child.name), ["@RootLasagna", "@OkButton"]);
 });
 
+test("reads the values a signal hands its slot in parentheses, and reports them anywhere else", () =>
+{
+    const source = "<Button OnClick={ Slots.LoadScene(Scenes.MainScene), Slots.UnloadScene( Scenes.Note ) }/>";
+    assert.deepEqual(errors(source), []);
+    assertLossless(source);
+
+    const onClick = parseBechaml(source).root?.attributes[0]?.value;
+    const calls = "List" === onClick?.kind ? onClick.items : [];
+    assert.deepEqual(calls.map(call => "Reference" === call.kind ? [call.segments.join("."), (call.arguments ?? []).map(argument => "Reference" === argument.kind ? argument.segments.join(".") : "")] : []),
+    [
+        ["Slots.LoadScene", ["Scenes.MainScene"]],
+        ["Slots.UnloadScene", ["Scenes.Note"]]
+    ]);
+
+    assert.deepEqual(errors("<Text Colors=Dictionary.Colors.Accent(1)/>"), ["1:38 Values in parentheses only go with the slot a signal calls, as in OnClick=Slots.LoadScene(Scenes.MainScene)."]);
+    assert.deepEqual(errors("<Button OnClick=Slots.LoadScene(Scenes.MainScene/>"), ["1:32 The call isn't closed: ) is missing."]);
+    assertLossless("<Button OnClick=Slots.LoadScene(Scenes.MainScene/>");
+});
+
 test("reads every kind of value", () =>
 {
     const source = "<Values>{ True, False, 16, -3, 56.7, 1e-3, \"a\\\"b\\\\c\\nd\\te\", #16161D, #1144FF80, { 1.0, 2 }, Dictionary.Colors.Accent, { }, }</Values>";

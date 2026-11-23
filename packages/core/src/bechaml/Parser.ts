@@ -52,6 +52,8 @@ class Parser
     private readonly _diagnostics: Diagnostic[] = [];
     //The elements being read, innermost last, so a closing tag can tell which one it belongs to
     private readonly _openElementNames: string[] = [];
+    //Whether a signal's value is being read (OnClick=…), the one place a slot may take values in parentheses
+    private _isInSignal = false;
 
     constructor(source: string)
     {
@@ -401,7 +403,9 @@ class Parser
         }
         else
         {
+            this._isInSignal = /^On[A-Z]/.test(name);
             value = this.parseValue();
+            this._isInSignal = false;
             children.push(value);
         }
 
@@ -610,10 +614,64 @@ class Parser
             this.report(token, "Write " + text[0]?.toUpperCase() + text.slice(1).toLowerCase() + ": bools are True and False.");
         else if (!text.includes("."))
             this.report(token, text + " needs quotes: \"" + text + "\". Text and enum values are strings.");
+        else if (this.isAt("("))
+            return this.parseCall(token);
         else
             return { kind: "Reference", start: token.start, end: token.end, children: [token], segments: text.split(".") };
 
         return this.invalid([token]);
+    }
+
+    //At the "(" after a reference: the values a signal hands its slot, Slots.LoadScene(Scenes.MainScene)
+    private parseCall(name: Token): Value
+    {
+        const openParen = this.take("OpenParen", 1);
+        const children: SyntaxChild[] = [name, openParen];
+        const items: Value[] = [];
+        let isAfterComma = false;
+
+        if (!this._isInSignal)
+            this.report(openParen, "Values in parentheses only go with the slot a signal calls, as in OnClick=Slots.LoadScene(Scenes.MainScene).");
+
+        for (;;)
+        {
+            this.skipTrivia(children, "Comments can't go inside a call.");
+
+            if (this.isAt(")"))
+            {
+                children.push(this.take("CloseParen", 1));
+                break;
+            }
+
+            if (this.isAtEnd() || this.isAt("<") || this.isAt(">") || this.isAt("/>"))
+            {
+                this.report(openParen, "The call isn't closed: ) is missing.");
+                break;
+            }
+
+            if (this.isAt(","))
+            {
+                const comma = this.take("Comma", 1);
+                children.push(comma);
+
+                if (0 === items.length || isAfterComma)
+                    this.report(comma, "A value is missing before this comma.");
+
+                isAfterComma = true;
+                continue;
+            }
+
+            const item = this.parseValue();
+            children.push(item);
+
+            if (0 < items.length && !isAfterComma)
+                this.report(item, "A comma is missing between the call's values.");
+
+            items.push(item);
+            isAfterComma = false;
+        }
+
+        return { kind: "Reference", start: name.start, end: this._position, children: children, segments: name.text.split("."), arguments: items };
     }
 
     //At "</". Reads the closing tag into children and returns its span.

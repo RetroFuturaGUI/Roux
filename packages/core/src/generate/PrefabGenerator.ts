@@ -263,6 +263,12 @@ class PrefabGenerator extends SceneGenerator
     {
         const [kind, name] = "Reference" === value.kind && 2 === value.segments.length ? value.segments : [];
 
+        if ("Reference" === value.kind && value.arguments)
+        {
+            this.error(value, "A prefab's slots take no values in parentheses; loading scenes is the scene's: connect the instance's widget in the scene.");
+            return undefined;
+        }
+
         if ("Slots" === kind && name)
         {
             const slot = this._slots.get(name);

@@ -13,6 +13,8 @@ export type TokenKind =
     | "Comma"
     | "OpenBrace"
     | "CloseBrace"
+    | "OpenParen"       //"(" after a slot a signal calls: Slots.LoadScene(Scenes.MainScene)
+    | "CloseParen"
     | "Name"            //Button, Colors:Hover, Dictionary.Colors.Accent
     | "String"
     | "Number"
@@ -137,6 +139,8 @@ export interface ReferenceValue extends NodeBase
 {
     readonly kind: "Reference";
     readonly segments: readonly string[];
+    //The values a signal hands its slot, Slots.LoadScene(Scenes.MainScene). Only a signal's value has them.
+    readonly arguments?: readonly Value[];
 }
 
 //Where a value should be but the text isn't one. It always comes with a diagnostic

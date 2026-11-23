@@ -33,7 +33,7 @@ export interface SceneProject
 export interface SceneResult
 {
     readonly name: string | undefined;
-    readonly loads: readonly string[]; //The scenes its Scenes.X signals load, so the windows showing it can check they list them.
+    readonly loads: readonly string[]; //The scenes its Slots.LoadScene(Scenes.X) load, so the windows showing it can check they list them
     readonly outputs: Map<string, string>; //Absolute paths.
     readonly problems: GenerateProblem[];
 }
@@ -77,13 +77,20 @@ export function generatedSceneBase(folder: string, namespace: string): Map<strin
         "",
         "namespace " + namespace,
         "{",
-        "    /// @brief What every generated scene shares: the scene it builds, the window it sits in, and the way it asks that",
-        "    ///        window for another scene.",
+        "    /// @brief What every generated scene shares: the scene it builds, the window it sits in, and the slots that load",
+        "    ///        scenes into that window and take them out",
         "    class GeneratedScene : public RetroFuturaGUI::ISceneHost",
         "    {",
         "    public:",
-        "        /// @brief What a scene calls to be replaced by the named scene. The window does the swap after the frame.",
-        "        using SceneRequest = std::function<void(const GeneratedScene& requester, std::string_view sceneName)>;",
+        "        /// @brief Whether a scene asks its window to add a scene or to take one out.",
+        "        enum class SceneChange : u32",
+        "        {",
+        "            Load,",
+        "            Unload",
+        "        };",
+        "",
+        "        /// @brief What a scene calls to have its window add or take out the named scene once the frame is over",
+        "        using SceneRequest = std::function<void(const SceneChange change, std::string_view sceneName)>;",
         "",
         "        GeneratedScene(const GeneratedScene&) = delete;",
         "        GeneratedScene(GeneratedScene&&) = delete;",
@@ -103,12 +110,17 @@ export function generatedSceneBase(folder: string, namespace: string): Map<strin
         "            return scene;",
         "        }",
         "",
+        "    publicSlots:",
+        "        /// @brief Adds the named scene to the window this scene sits in, after the scenes it shows, once the frame is over",
+        "        ///        and the scene's files are loaded. Does nothing for a scene the window shows or was asked for already.",
+        "        void LoadScene(std::string_view sceneName) const;",
+        "",
+        "        /// @brief Takes the named scene out of the window this scene sits in once the frame is over, this scene too. Does",
+        "        ///        nothing for a scene the window doesn't show.",
+        "        void UnloadScene(std::string_view sceneName) const;",
+        "",
         "    protected:",
         "        explicit GeneratedScene(RetroFuturaGUI::Window* parentWindow);",
-        "",
-        "        /// @brief Asks the window to show the named scene instead of this one, once the frame is over. Does nothing without a",
-        "        ///        window to ask.",
-        "        void loadScene(std::string_view sceneName) const;",
         "",
         "        /// @brief Calls one of the window's slots, such as Minimize. Does nothing without a window.",
         "        void callWindowSlot(void (RetroFuturaGUI::Window::*slot)()) const;",
@@ -150,12 +162,20 @@ export function generatedSceneBase(folder: string, namespace: string): Map<strin
         "    return _scene.get();",
         "}",
         "",
-        "void " + namespace + "::GeneratedScene::loadScene(std::string_view sceneName) const",
+        "void " + namespace + "::GeneratedScene::LoadScene(std::string_view sceneName) const",
         "{",
         "    if(!_sceneRequest)",
         "        return;",
         "",
-        "    _sceneRequest(*this, sceneName);",
+        "    _sceneRequest(SceneChange::Load, sceneName);",
+        "}",
+        "",
+        "void " + namespace + "::GeneratedScene::UnloadScene(std::string_view sceneName) const",
+        "{",
+        "    if(!_sceneRequest)",
+        "        return;",
+        "",
+        "    _sceneRequest(SceneChange::Unload, sceneName);",
         "}",
         "",
         "void " + namespace + "::GeneratedScene::callWindowSlot(void (RetroFuturaGUI::Window::*slot)()) const",
@@ -189,7 +209,10 @@ export interface WidgetNode
 }
 
 //What a widget's name may not be, since it also names a member, a local variable and a setup function.
-const reservedNames = new Set(["Scene", "ParentWindow", "LoadScene", "Assets", "Build", "GetScene", "Create", "SceneRequest"]);
+const reservedNames = new Set(["Scene", "ParentWindow", "LoadScene", "UnloadScene", "Assets", "Build", "GetScene", "Create", "SceneRequest"]);
+
+//The slots every scene has from GeneratedScene, each taking the name of a scene: Slots.LoadScene(Scenes.MainScene).
+const sceneSlots = new Set(["LoadScene", "UnloadScene"]);
 
 export class SceneGenerator extends MarkupGenerator
 {
@@ -201,6 +224,7 @@ export class SceneGenerator extends MarkupGenerator
     private readonly _prefabSetups: { name: string; statements: Statement[] }[] = []; //A placed prefab's setup per widget its entries reach
     protected _name = "";
     protected _usesForward = false;
+    private readonly _loads = new Set<string>(); //The scenes its Slots.LoadScene(Scenes.X) load.
 
     constructor(scene: SceneInput, project: SceneProject)
     {
@@ -212,7 +236,7 @@ export class SceneGenerator extends MarkupGenerator
     generate(): SceneResult
     {
         const outputs = new Map<string, string>();
-        const result = (name: string | undefined): SceneResult => ({ name: name, loads: [...this._slots.values()].flatMap(slot => slot.loadsScene ? [slot.loadsScene] : []), outputs: outputs, problems: this._problems });
+        const result = (name: string | undefined): SceneResult => ({ name: name, loads: [...this._loads], outputs: outputs, problems: this._problems });
         const root = this._scene.document.root;
 
         for (const diagnostic of this._scene.document.diagnostics)
@@ -269,7 +293,9 @@ export class SceneGenerator extends MarkupGenerator
             {
                 const slot = this.readSlot(child, this._slots);
 
-                if (slot)
+                if (slot && sceneSlots.has(slot.name))
+                    this.error(child, "Every scene has the slot " + slot.name + " already: name this one differently.");
+                else if (slot)
                     this._slots.set(slot.name, slot);
 
                 continue;
@@ -774,11 +800,20 @@ export class SceneGenerator extends MarkupGenerator
         const [kind, name] = "Reference" === value.kind && 2 === value.segments.length ? value.segments : [];
         const ignoring = 0 === argumentCount ? "[this]()" : "[this](auto&&...)";
 
+        if ("Slots" === kind && name && sceneSlots.has(name))
+            return this.sceneSlotConnection(value, name);
+
+        if ("Reference" === value.kind && value.arguments)
+        {
+            this.error(value, "Only LoadScene and UnloadScene take values in parentheses: OnClick=Slots.LoadScene(Scenes.MainScene).");
+            return undefined;
+        }
+
         if ("Slots" === kind && name)
         {
             const slot = this._slots.get(name);
 
-            if (!slot || slot.loadsScene)
+            if (!slot)
             {
                 this.error(value, "The scene declares no slot " + name + ": add <Slot>void " + name + "()</Slot>.");
                 return undefined;
@@ -799,23 +834,8 @@ export class SceneGenerator extends MarkupGenerator
 
         if ("Scenes" === kind && name)
         {
-            if (!this._project.sceneNames.has(name))
-            {
-                this.error(value, "No scene is named " + name + ".");
-                return undefined;
-            }
-
-            const slotName = "Load" + name;
-            const declared = this._slots.get(slotName);
-
-            if (declared && !declared.loadsScene)
-            {
-                this.error(value, "The slot " + slotName + " is declared by a <Slot> already, so Scenes." + name + " can't make it.");
-                return undefined;
-            }
-
-            this._slots.set(slotName, { name: slotName, returnType: "void", params: "", paramCount: 0, isAsync: false, loadsScene: name });
-            return { lambda: ignoring + " { " + slotName + "(); }", isAsync: false };
+            this.error(value, "A signal loads a scene with Slots.LoadScene(Scenes." + name + "), and takes one out with Slots.UnloadScene(Scenes." + this._name + ").");
+            return undefined;
         }
 
         if ("Window" === kind && name)
@@ -863,8 +883,32 @@ export class SceneGenerator extends MarkupGenerator
             return { lambda: ignoring + " { if(!" + widget.member + ") return; " + widget.member + "->" + slot.call + "(" + callArguments.join(", ") + "); }", isAsync: false };
         }
 
-        this.unknownTarget(value, "Slots.<Name>, Scenes.<Name>, Window.<Name> or @<Widget>.<Function>");
+        this.unknownTarget(value, "Slots.<Name>, Slots.LoadScene(Scenes.<Name>), Window.<Name> or @<Widget>.<Function>");
         return undefined;
+    }
+
+    //Slots.LoadScene(Scenes.MainScene) and Slots.UnloadScene(Scenes.MainScene): the scene's own slots, from GeneratedScene
+    private sceneSlotConnection(value: Value, slotName: string): { lambda: string; isAsync: boolean } | undefined
+    {
+        const [scene, ...extra] = "Reference" === value.kind ? value.arguments ?? [] : [];
+        const [kind, name, ...rest] = "Reference" === scene?.kind && !scene.arguments ? scene.segments : [];
+
+        if ("Scenes" !== kind || !name || 0 < rest.length || 0 < extra.length)
+        {
+            this.error(value, slotName + " takes the scene it means: Slots." + slotName + "(Scenes.MainScene).");
+            return undefined;
+        }
+
+        if (!this._project.sceneNames.has(name))
+        {
+            this.error(scene ?? value, "No scene is named " + name + ".");
+            return undefined;
+        }
+
+        if ("LoadScene" === slotName)
+            this._loads.add(name);
+
+        return { lambda: "[this](auto&&...) { " + slotName + "(" + JSON.stringify(name) + "); }", isAsync: false };
     }
 
     //Files
