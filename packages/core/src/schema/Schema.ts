@@ -73,7 +73,7 @@ export interface SchemaClass
     fields: Record<string, SchemaField>; //a struct's fields by .bechaml name: CellPlacement's Row
     constructorArgs: SchemaParameter[]; //a widget's after the parent window: an Image's path, a Lasagna's AxisDefinition
     //A widget that builds widgets inside it: Lasagna's AddWidget and CellPlacement; a MenuBar's AddWidget takes an index
-    container?: { add: string; placement: string; children?: SchemaChildren };
+    container?: { add: string; placement: string; children?: SchemaChildren; widget?: string }; //widget: the one type a container adds through its own @bechaml add function, AddRadioButton
     popupScopes?: string[]; //@bechaml popup: the StyleScope values a popup type styles under
 }
 
@@ -82,6 +82,7 @@ export interface SchemaEnum
     cpp: string;
     header: string;
     values: string[];
+    isMask?: boolean; //a bit mask, combined with its operator |: markup lists the names, { "Colors", "CornerRadii" }
 }
 
 export interface Schema

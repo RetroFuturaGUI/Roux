@@ -81,6 +81,7 @@ export function buildSchema(roots: readonly AstNode[], sourceFolder: string): Bu
 {
     const classes = new Map<string, RawClass>();
     const enums: Record<string, SchemaEnum> = {};
+    const maskNames = new Set<string>(); //the enums an operator | combines, marked once all are read.
     const problems: string[] = [];
     const header = (file: string) => path.relative(sourceFolder, file).split(path.sep).join("/");
 
@@ -122,6 +123,15 @@ export function buildSchema(roots: readonly AstNode[], sourceFolder: string): Bu
             enums[name] = { cpp: isLibrary ? libraryNamespace + "::" + name : name, header: header(file), values: values };
         }
 
+        //An enum with an operator | of its own is a bit mask: Colors | CornerRadii.
+        if ("FunctionDecl" === node.kind && "operator|" === node.name && isLibrary)
+        {
+            const operand = (node.inner ?? []).find(child => "ParmVarDecl" === child.kind)?.type?.qualType;
+
+            if (operand)
+                maskNames.add(cleanType(operand));
+        }
+
         if ("CXXRecordDecl" === node.kind && node.name && !node.isImplicit)
         {
             const key = [...records, node.name].join("::");
@@ -138,6 +148,14 @@ export function buildSchema(roots: readonly AstNode[], sourceFolder: string): Bu
 
     for (const root of roots)
         visit(root, [], []);
+
+    for (const name of maskNames)
+    {
+        const mask = enums[name];
+
+        if (mask)
+            mask.isMask = true;
+    }
 
     const membersOf = memberResolver(classes);
     const built = new Map<string, SchemaClass>();
@@ -187,6 +205,16 @@ export function buildSchema(roots: readonly AstNode[], sourceFolder: string): Bu
             {
                 if (classes.has(argument.type))
                     reached.push([argument.type, "struct"]);
+            }
+
+            //A struct a setter takes, alone or as a list (<Transition Duration=150/>, <Gap …/>), so the markup can name its fields.
+            for (const parameter of Object.values(schemaClass.setters).flat().flatMap(setter => setter.params))
+            {
+                const type = /^std::(?:span|vector)<(?:const )?(.+)>$/.exec(parameter.type)?.[1] ?? parameter.type;
+                const raw = classes.get(type);
+
+                if (raw && 0 < raw.fields.length && raw.constructors.every(constructor => 0 === constructor.params.length))
+                    reached.push([type, "struct"]);
             }
 
             for (const [name, role] of reached)
@@ -422,6 +450,19 @@ function toSchemaClass(raw: RawClass, role: SchemaRole, methods: RawMethod[], cl
             continue;
         }
 
+        //AddRadioButton(name, index). A container that adds one kind of widget, from its name and its place, and returns it
+        if (tags.isAdd)
+        {
+            const widget = /^([\w:]+) \*\(/.exec(method.qualType)?.[1];
+
+            if (widget && 2 === method.params.length && method.params[1])
+                container = { add: method.name, placement: cleanType(method.params[1].type), widget: baseName(widget) };
+            else
+                problems.push(raw.key + "::" + method.name + ": @bechaml add needs a name and a place, and returns the widget it adds.");
+
+            continue;
+        }
+
         //The struct a span or vector of it holds, looked up in the class first: std::span<FlexDefinition> in MenuBar is
         //MenuBar::FlexDefinition.
         if (tags.isChildren)
@@ -531,17 +572,18 @@ interface Tags
     isSlot: boolean;
     isChildren: boolean;
     isSetter: boolean;
+    isAdd: boolean;
     name?: string;
     group?: string[];
     defaults?: Record<string, string>;
 }
 
-const tagKinds = "group, default, name, internal, slot, children, setter";
+const tagKinds = "group, default, name, internal, slot, children, setter, add";
 
 //The tags of one method or field; one that isn't a known kind is reported, so a misspelled tag doesn't pass unnoticed.
 function parseTags(tags: readonly string[], where: string, problems: string[]): Tags
 {
-    const parsed: Tags = { isInternal: false, isSlot: false, isChildren: false, isSetter: false };
+    const parsed: Tags = { isInternal: false, isSlot: false, isChildren: false, isSetter: false, isAdd: false };
 
     for (const tag of tags)
     {
@@ -560,6 +602,9 @@ function parseTags(tags: readonly string[], where: string, problems: string[]): 
                 break;
             case "setter":
                 parsed.isSetter = true;
+                break;
+            case "add":
+                parsed.isAdd = true;
                 break;
             case "name":
                 parsed.name = words[0];

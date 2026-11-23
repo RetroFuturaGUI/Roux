@@ -26,6 +26,9 @@ async function testSchema(libraryFolder: string): Promise<Schema>
         enums:
         {
             ColorState: { cpp: "RetroFuturaGUI::ColorState", header: "OpenGlHelpers/IncludeHelper.hpp", values: ["Enabled", "Hover", "Clicked"] },
+            TransitionProperty: { cpp: "RetroFuturaGUI::TransitionProperty", header: "Animation/Transition.hpp", values: ["Colors", "CornerRadii", "Size"], isMask: true },
+            Easing: { cpp: "RetroFuturaGUI::Easing", header: "Animation/Transition.hpp", values: ["Linear", "EaseOut", "EaseInOut"] },
+            BorderEdge: { cpp: "RetroFuturaGUI::BorderEdge", header: "Rectangles/Frame.hpp", values: ["Top", "Bottom"] },
             FontSizeUnit: { cpp: "RetroFuturaGUI::FontSizeUnit", header: "Text/FontManager.hpp", values: ["Pixels", "Points"] },
             SizingMode: { cpp: "RetroFuturaGUI::SizingMode", header: "OpenGlHelpers/IncludeHelper.hpp", values: ["FIXED", "FILL"] },
             "MenuBar::FlexSizing": { cpp: "RetroFuturaGUI::MenuBar::FlexSizing", header: "Widgets/Containers/MenuBar.hpp", values: ["Star", "Fixed", "Square"] }
@@ -47,12 +50,25 @@ async function testSchema(libraryFolder: string): Promise<Schema>
                 setters:
                 {
                     Enabled: [{ call: "SetEnabled", params: [{ name: "enable", type: "bool" }, { name: "emitSignal", type: "bool" }] }],
+                    Transition: [{ call: "SetTransition", params: [{ name: "properties", type: "TransitionProperty" }, { name: "transition", type: "Transition" }] }],
                     Rotation: [{ call: "SetRotation", params: [{ name: "rotation", type: "glm::vec3" }] }]
                 },
                 signals: { OnClick: signal, OnFilesDropped: { connect: "Connect_OnFilesDropped", slot: "typename Signal<std::vector<std::string>, glm::vec2>::Slot" } },
                 slots: { Press: { call: "Press", params: [] } }
             }),
             Prefab: schemaClass("Prefab", "Widgets/Containers/Prefab.hpp", "widget"),
+            RadioButtonGroup: schemaClass("RadioButtonGroup", "Widgets/Containers/RadioButtonGroup.hpp", "widget",
+            {
+                setters: { Rows: [{ call: "SetAxisDefinitions", params: [{ name: "rowDefinitions", type: "std::span<const f32>" }, { name: "columnDefinitions", type: "std::span<const f32>" }], group: ["Rows", "Columns"], defaults: { columnDefinitions: "1" } }] },
+                container: { add: "AddRadioButton", placement: "glm::i64vec2", widget: "RadioButton" }
+            }),
+            RadioButton: schemaClass("RadioButton", "Widgets/RadioButton.hpp", "widget",
+            {
+                parts: { Label: { getter: "GetLabel", type: "Label" } },
+                setters: { Value: [{ call: "SetValue", params: [{ name: "value", type: "bool" }, { name: "emitSignal", type: "bool" }] }] },
+                constructorArgs: [{ name: "parentGroup", type: "RadioButtonGroup *" }]
+            }),
+            Label: schemaClass("Label", "Widgets/Label.hpp", "widget", { parts: { Text: { getter: "GetText", type: "WidgetText" } } }),
             ComboBox: schemaClass("ComboBox", "Widgets/ComboBox.hpp", "widget",
             {
                 setters:
@@ -83,7 +99,11 @@ async function testSchema(libraryFolder: string): Promise<Schema>
                     Image: [{ call: "SetImage", params: [{ name: "path", type: "std::string_view" }] }]
                 }
             }),
-            Background: schemaClass("Background", "Widgets/Parts/Background.hpp", "part", { parts: { Glow: { getter: "GetGlow", type: "Glow" } }, setters: { Colors: [colors], CornerRadii: [{ call: "SetCornerRadii", params: [{ name: "radii", type: "glm::vec4" }] }], Image: [{ call: "SetImage", params: [{ name: "imagePath", type: "std::string_view" }] }] } }),
+            Background: schemaClass("Background", "Widgets/Parts/Background.hpp", "part", { parts: { Glow: { getter: "GetGlow", type: "Glow" } }, setters: { GlassNoise: [{ call: "SetGlassNoise", params: [{ name: "noise", type: "GlassNoise" }] }], Gaps: [{ call: "SetGaps", params: [{ name: "gaps", type: "std::span<const BorderGap>" }] }], PathFill: [{ call: "SetImagePathFill", params: [{ name: "name", type: "std::string_view" }, { name: "fill", type: "SvgPathFill" }] }], Colors: [colors], CornerRadii: [{ call: "SetCornerRadii", params: [{ name: "radii", type: "glm::vec4" }] }], Image: [{ call: "SetImage", params: [{ name: "imagePath", type: "std::string_view" }] }] } }),
+            Transition: schemaClass("Transition", "Animation/Transition.hpp", "struct", { fields: { Duration: { member: "_Duration", type: "std::chrono::milliseconds" }, Easing: { member: "_Easing", type: "Easing", default: "\"EaseInOut\"" } } }),
+            GlassNoise: schemaClass("GlassNoise", "Shaders/Noise.hpp", "struct", { fields: { CellSize: { member: "_CellSize", type: "f32", default: "128.0" }, Distortion: { member: "_Distortion", type: "f32", default: "12.0" } } }),
+            BorderGap: schemaClass("BorderGap", "Rectangles/Frame.hpp", "struct", { fields: { Edge: { member: "_Edge", type: "BorderEdge", default: "\"Top\"" }, Length: { member: "_Length", type: "f32", default: "0.0" }, Repeat: { member: "_Repeat", type: "i32", default: "1" }, CutsBackground: { member: "_CutsBackground", type: "bool", default: "False" } } }),
+            SvgPathFill: schemaClass("SvgPathFill", "OpenGlHelpers/SvgPathFill.hpp", "struct", { fields: { Colors: { member: "_Colors", type: "std::vector<glm::vec4>" } } }),
             Glow: schemaClass("Glow", "Shaders/Glow.hpp", "part", { parts: { Flash: { getter: "GetFlash", type: "Flash" } }, setters: { Colors: [colors] } }),
             Flash: schemaClass("Flash", "Shaders/Flash.hpp", "part",
             {
@@ -459,6 +479,92 @@ test("hands a setter a list of whatever it takes several of, and refuses a list 
             "This takes one of \"FIXED\", \"FILL\".",
             "This takes a list the setter changes (std::span<f32>), which markup can't hand over."
         ]);
+    }
+    finally
+    {
+        rmSync(folder, { recursive: true, force: true });
+    }
+});
+
+test("writes a struct setter from a child element of its fields, a list setter's items into one call, and a mask from a list", async () =>
+{
+    const folder = await sceneProject();
+    const background = "<Background Colors={ 1.0, 0.5, 0.0 } CornerRadii={ 4.0, 4.0, 4.0, 4.0 }/>";
+
+    try
+    {
+        const markup = path.join(folder, "source", "code", "Scenes", "MenuScene.bechaml");
+        writeFileSync(markup, menuScene.replace(background,
+            "<Transition Properties={ \"Colors\", \"CornerRadii\" } Duration=150 Easing=\"EaseOut\"/>\n" +
+            "            <Transition Properties=\"Size\" Duration=300/>\n" +
+            "            <Background>\n" +
+            "                <GlassNoise CellSize=96.0/>\n" +
+            "                <Gap Edge=\"Top\" Length=80.0 CutsBackground/>\n" +
+            "                <PathFill Name=\"hexagon\" Colors=#99EBFF/>\n" +
+            "                <Gap Edge=\"Bottom\" Length=10.0 Repeat=-1/>\n" +
+            "            </Background>"));
+        const result = await generateProject(folder);
+        assert.deepEqual(result.problems, []);
+
+        const setup = read(folder, "source/generated/impl/Scenes/MenuScene_setup.cpp");
+        assert.ok(setup.includes("okButton->SetTransition(RetroFuturaGUI::TransitionProperty::Colors | RetroFuturaGUI::TransitionProperty::CornerRadii, RetroFuturaGUI::Transition { ._Duration = std::chrono::milliseconds(150), ._Easing = RetroFuturaGUI::Easing::EaseOut });"), "a mask's names are joined, the struct's fields named");
+        assert.ok(setup.includes("okButton->SetTransition(RetroFuturaGUI::TransitionProperty::Size, RetroFuturaGUI::Transition { ._Duration = std::chrono::milliseconds(300), ._Easing = RetroFuturaGUI::Easing::EaseInOut });"), "a setter may be called again, a field left out taking its default");
+        assert.ok(setup.includes("okButton->GetBackground().SetGlassNoise(RetroFuturaGUI::GlassNoise { ._CellSize = 96.0f, ._Distortion = 12.0f });"));
+        assert.ok(setup.includes("okButton->GetBackground().SetImagePathFill(\"hexagon\", RetroFuturaGUI::SvgPathFill { ._Colors = { glm::vec4(0.6f, 0.921569f, 1.0f, 1.0f) } });"), "the setter's other values come from attributes named after them");
+        assert.ok(setup.includes("okButton->GetBackground().SetGaps(std::array { RetroFuturaGUI::BorderGap { ._Edge = RetroFuturaGUI::BorderEdge::Top, ._Length = 80.0f, ._Repeat = 1, ._CutsBackground = true }, RetroFuturaGUI::BorderGap { ._Edge = RetroFuturaGUI::BorderEdge::Bottom, ._Length = 10.0f, ._Repeat = -1, ._CutsBackground = false } });"), "a list setter's items, wherever they are, make one call");
+
+        writeFileSync(markup, menuScene.replace(background,
+            "<Transition Duration=150 Speed=2.0/>\n" +
+            "            <Background GlassNoise=1.0>\n" +
+            "                <PathFill Name=\"ring\"/>\n" +
+            "            </Background>"));
+        assert.deepEqual((await generateProject(folder)).problems.map(problem => problem.message),
+        [
+            "A GlassNoise is written as a child element named after its setter, its fields as attributes.",
+            "<PathFill> needs Colors, which SvgPathFill has no default for.",
+            "<Transition> needs Properties."
+        ]);
+    }
+    finally
+    {
+        rmSync(folder, { recursive: true, force: true });
+    }
+});
+
+test("adds a RadioButtonGroup's buttons to its cells, styles their labels as parts, and reads its tracks as a Lasagna's", async () =>
+{
+    const folder = await sceneProject();
+
+    try
+    {
+        const markup = path.join(folder, "source", "code", "Scenes", "MenuScene.bechaml");
+        const group = (inside: string, attributes = "Rows=2") => menuScene.replace("    </Lasagna>", "        <RadioButtonGroup Name=\"Mode\" Row=0 Column=1 " + attributes + ">\n" + inside + "        </RadioButtonGroup>\n    </Lasagna>");
+        writeFileSync(markup, group(
+            "            <RadioButton Name=\"First\" Value>\n" +
+            "                <Label>\n                    <Text String=\"First mode\"/>\n                </Label>\n" +
+            "            </RadioButton>\n" +
+            "            <RadioButton Name=\"Second\" Row=1/>\n"));
+        const result = await generateProject(folder);
+        assert.deepEqual(result.problems, []);
+
+        const setup = read(folder, "source/generated/impl/Scenes/MenuScene_setup.cpp");
+        assert.ok(setup.includes("mode->SetAxisDefinitions(std::array { 0.5f, 0.5f }, std::array { 1.0f });"), "Rows=2 is two tracks, and Columns left out is one");
+        assert.ok(setup.includes("_first = mode.AddRadioButton(\"First\", glm::i64vec2(0, 0));"), "the group builds its button itself, Row and Column 0 when left out");
+        assert.ok(setup.includes("_second = mode.AddRadioButton(\"Second\", glm::i64vec2(1, 0));"));
+        assert.ok(setup.includes("first->SetValue(true, false);"));
+        assert.ok(setup.includes("first->GetLabel().GetText().SetString(\"First mode\", false);"), "the label is a part of its button");
+        assert.ok(read(folder, "source/generated/impl/Scenes/MenuScene_p.hpp").includes("RetroFuturaGUI::WidgetReference<RetroFuturaGUI::RadioButton> _first { nullptr };"));
+
+        writeFileSync(markup, group("            <Button Name=\"Stray\"/>\n            <RadioButton Name=\"Third\" Row=-1/>\n", "Rows=1 Columns={ 0.5, 0.25 }"));
+        assert.deepEqual((await generateProject(folder)).problems.map(problem => problem.severity + ": " + problem.message),
+        [
+            "error: A RadioButtonGroup holds only RadioButtons and its parts, not a Button.",
+            "warning: The tracks add up to 0.75: each is a share of the size, so together they usually make 1.0.",
+            "error: Row takes a whole number from 0 on."
+        ]);
+
+        writeFileSync(markup, group("", "Rows=0"));
+        assert.deepEqual((await generateProject(folder)).problems.map(problem => problem.message), ["This takes at least one track."]);
     }
     finally
     {

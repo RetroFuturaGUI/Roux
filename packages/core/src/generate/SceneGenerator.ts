@@ -203,7 +203,7 @@ export interface WidgetNode
     readonly parent: WidgetNode | undefined;
     readonly index: number; //Among its parent's widgets.
     readonly children: WidgetNode[];
-    readonly parts: Element[];
+    readonly parts: Element[]; //its parts, and its elements writing a struct to a setter of its own
     readonly prefab?: PrefabModel; //For a placed prefab: what it is, and the entries for its widgets below
     readonly prefabEntries?: Element[]; //<@ButtonUp …> and <Button …>, in their order
 }
@@ -361,7 +361,8 @@ export class SceneGenerator extends MarkupGenerator
 
         for (const child of element.elements)
         {
-            if (schemaClass.parts[child.name])
+            //A part, or a setter writing a struct (<Transition Duration=150/>), both of the widget itself
+            if (schemaClass.parts[child.name] || this.structSetterOf(schemaClass, child.name))
             {
                 node.parts.push(child);
                 continue;
@@ -370,6 +371,12 @@ export class SceneGenerator extends MarkupGenerator
             if (!schemaClass.container)
             {
                 this.error(child, child.name + " isn't a part of " + element.name + ".");
+                continue;
+            }
+
+            if (schemaClass.container.widget && schemaClass.container.widget !== child.name)
+            {
+                this.error(child, "A " + element.name + " holds only " + schemaClass.container.widget + "s and its parts, not a " + child.name + ".");
                 continue;
             }
 
@@ -576,15 +583,17 @@ export class SceneGenerator extends MarkupGenerator
         if (widget.prefab)
             return container && undefined !== placement ? this.prefabInstanceStatements(widget, widget.prefab, placement, consumed) : [];
 
-        const constructor = this.constructorArguments(widget, consumed);
+        //A container adding one kind of widget builds it itself, its constructor's values included: AddRadioButton(name, index)
+        const constructor = container?.widget ? "" : this.constructorArguments(widget, consumed);
 
         if (!container || undefined === placement || undefined === constructor)
             return [];
 
         const callArguments = [JSON.stringify(widget.name), placement, ...(constructor ? [constructor] : [])];
+        const add = container.widget ? container.add : container.add + "<" + widget.schemaClass.cpp + ">";
         const statements: Statement[] =
         [
-            { text: widget.member + " = " + parent.local + "." + container.add + "<" + widget.schemaClass.cpp + ">(" + callArguments.join(", ") + ");", line: line },
+            { text: widget.member + " = " + parent.local + "." + add + "(" + callArguments.join(", ") + ");", line: line },
             { text: widget.schemaClass.cpp + "* " + widget.local + " { " + widget.member + ".Get() };" },
             { text: "" },
             { text: "if(!" + widget.local + ")" },
@@ -606,6 +615,8 @@ export class SceneGenerator extends MarkupGenerator
 
         for (const part of widget.parts)
             body.push(...this.partStatements(widget.schemaClass, part, target));
+
+        body.push(...this.structSetterStatements(widget.schemaClass, widget.parts.filter(part => !widget.schemaClass.parts[part.name]), target));
 
         if (0 < body.length)
             statements.push({ text: "" }, ...body);
@@ -721,6 +732,30 @@ export class SceneGenerator extends MarkupGenerator
 
         if (integerTypes.has(placement))
             return String(widget.index);
+
+        //A RadioButtonGroup's cell, by its Row and Column, each 0 when left out
+        if ("glm::i64vec2" === placement)
+        {
+            const cell = ["Row", "Column"].map(name =>
+            {
+                const attribute = widget.element.attributes.find(candidate => name === candidate.name);
+
+                if (!attribute)
+                    return "0";
+
+                consumed.add(attribute);
+
+                if ("Integer" !== attribute.value?.kind || 0 > attribute.value.value)
+                {
+                    this.error(attribute.value ?? attribute, name + " takes a whole number from 0 on.");
+                    return "0";
+                }
+
+                return String(attribute.value.value);
+            });
+
+            return "glm::i64vec2(" + cell.join(", ") + ")";
+        }
 
         this.error(widget.element, parent.type + " adds widgets with a " + placement + ", which Roux can't write yet.");
         return undefined;

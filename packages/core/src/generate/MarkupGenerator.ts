@@ -20,6 +20,16 @@ export interface Statement
     readonly line?: number;
 }
 
+//A setter a child element writes a struct to: SetTransition(properties, transition) for <Transition>, SetGaps(gaps) for <Gap>
+export interface StructSetter
+{
+    readonly name: string; //the setter's name in the schema: Transition, Gaps
+    readonly overload: SchemaSetter;
+    readonly parameter: SchemaParameter; //the one taking the struct, or the list of them
+    readonly type: string; //the struct
+    readonly isList: boolean; //each element is one item, all of them one call
+}
+
 //A <Slot>.
 export interface SlotDeclaration
 {
@@ -58,6 +68,9 @@ const isEmitSignal = (parameter: SchemaParameter) => "emitSignal" === parameter.
 
 //A parameter naming a file the library loads, such as SetImage(path) or an SvgImage's SvgImagePath
 const isFileParameter = (type: string, name: string) => ("std::string_view" === type || "std::string" === type) && /path$/i.test(name);
+
+//A parameter taking a container's tracks, each a share of its size, as a Lasagna's Rows do: a RadioButtonGroup's rowDefinitions
+const isTrackParameter = (type: string, name: string) => ("std::span<const f32>" === type || "std::vector<f32>" === type) && /Definitions$/.test(name);
 
 const isFile = (file: string) => existsSync(file) && statSync(file).isFile();
 const unsignedTypes = new Set(["u8", "u16", "u32", "u64", "uSize"]);
@@ -305,9 +318,16 @@ export abstract class MarkupGenerator
 
         const partTarget = target + part.getter + "().";
         const statements = this.attributeStatements(partClass, element.name, element.attributes, partTarget);
+        const structElements: Element[] = [];
 
         for (const child of element.elements)
         {
+            if (this.structSetterOf(partClass, child.name))
+            {
+                structElements.push(child);
+                continue;
+            }
+
             if (!partClass.parts[child.name])
             {
                 this.error(child, child.name + " isn't a part of " + element.name + ".");
@@ -317,7 +337,136 @@ export abstract class MarkupGenerator
             statements.push(...this.partStatements(partClass, child, partTarget, owner));
         }
 
+        statements.push(...this.structSetterStatements(partClass, structElements, partTarget));
         return statements;
+    }
+
+    //The setter a child element stands for when it writes a struct (.bechaml/Plan.md 2.4): named after the setter
+    //(<Transition Duration=150/>), or after one item of a setter taking a list of them (<Gap …/> for Gaps).
+    protected structSetterOf(owner: SchemaClass, elementName: string): StructSetter | undefined
+    {
+        for (const [name, overloads] of Object.entries(owner.setters))
+        {
+            for (const overload of overloads)
+            {
+                for (const parameter of overload.params)
+                {
+                    const list = /^std::(span|vector)<(const )?(.+)>$/.exec(parameter.type);
+                    const type = list?.[3] ?? parameter.type;
+
+                    if ("struct" !== this._schema.classes[type]?.role)
+                        continue;
+
+                    if (!list && name === elementName)
+                        return { name: name, overload: overload, parameter: parameter, type: type, isList: false };
+
+                    if (list && singular(name) === elementName)
+                        return { name: name, overload: overload, parameter: parameter, type: type, isList: true };
+                }
+            }
+        }
+
+        return undefined;
+    }
+
+    //The calls struct elements make, in their order: one per element, the items of a list setter gathered into one call at
+    //the first of them.
+    protected structSetterStatements(owner: SchemaClass, elements: readonly Element[], target: string): Statement[]
+    {
+        const statements: Statement[] = [];
+        const listsDone = new Set<string>();
+
+        for (const element of elements)
+        {
+            const setter = this.structSetterOf(owner, element.name);
+
+            if (!setter || listsDone.has(setter.name))
+                continue;
+
+            if (setter.isList)
+                listsDone.add(setter.name);
+
+            const items = setter.isList ? elements.filter(item => element.name === item.name) : [element];
+            const call = this.structSetterCall(owner, setter, items, target);
+
+            if (undefined !== call)
+                statements.push({ text: call, line: this.lineOf(element) });
+        }
+
+        return statements;
+    }
+
+    //One setter's call: its struct from the element's fields (or a list's from every item's), its other values from the
+    //element's attributes named after them, emitSignal false.
+    private structSetterCall(owner: SchemaClass, setter: StructSetter, items: readonly Element[], target: string): string | undefined
+    {
+        const first = items[0] as Element;
+        const consumed = new Set<Attribute>();
+        const values: string[] = [];
+
+        for (const item of items)
+        {
+            if (item.value || 0 < item.elements.length)
+                this.error(item.value ?? item.elements[0] ?? item, "<" + item.name + "> holds its fields as attributes, nothing inside it.");
+        }
+
+        for (const parameter of setter.overload.params)
+        {
+            if (parameter === setter.parameter)
+            {
+                const literals = items.map(item => this.structLiteral(setter.type, item, consumed));
+
+                if (literals.some(literal => undefined === literal))
+                    return undefined;
+
+                if (!setter.isList)
+                {
+                    values.push(literals[0] as string);
+                    continue;
+                }
+
+                this._headers.add("<array>");
+                values.push(/^std::vector</.test(parameter.type) ? "{ " + literals.join(", ") + " }" : "std::array { " + literals.join(", ") + " }");
+                continue;
+            }
+
+            if (isEmitSignal(parameter))
+            {
+                values.push("false"); //Markup never fires a signal.
+                continue;
+            }
+
+            const attributeName = upperFirst(parameter.name);
+            const attribute = setter.isList ? undefined : first.attributes.find(candidate => attributeName === candidate.name);
+
+            if (!attribute)
+            {
+                if (parameter.hasDefault)
+                    break;
+
+                this.error(first, "<" + first.name + "> needs " + attributeName + ".");
+                return undefined;
+            }
+
+            consumed.add(attribute);
+            const value = this.convertAt(attribute, parameter.type, owner.cpp, parameter.name);
+
+            if (undefined === value)
+                return undefined;
+
+            values.push(value);
+        }
+
+        const structClass = this._schema.classes[setter.type];
+        const fieldNames = Object.keys(structClass?.fields ?? {});
+
+        for (const item of items)
+        {
+            for (const attribute of item.attributes.filter(candidate => !consumed.has(candidate)))
+                this.error(attribute, "<" + item.name + "> has no " + attribute.name + ": it takes " + fieldNames.join(", ") + ".");
+        }
+
+        return target + setter.overload.call + "(" + values.join(", ") + ");";
     }
 
     //A flash's steps, loop and times have to fit together (.bechaml/Plan.md 2.6). Lists given by reference aren't counted
@@ -622,7 +771,7 @@ export abstract class MarkupGenerator
                 if (attribute)
                     values.set(parameter, this.convertNamed(attribute.value ?? trueValue(attribute), parameter.type, parameter.name, schemaClass.cpp));
                 else if (undefined !== fallback)
-                    values.set(parameter, this.convertText(fallback, parameter.type, schemaClass.cpp, at, true));
+                    values.set(parameter, this.convertText(fallback, parameter.type, schemaClass.cpp, at, true, parameter.name));
                 else if (parameter.hasDefault)
                     isOmitted = true;
                 else
@@ -745,7 +894,39 @@ export abstract class MarkupGenerator
     //A parameter's value: a file for a parameter naming one, else as its type is written
     protected convertNamed(value: Value, type: string, name: string, owner: string): string
     {
-        return isFileParameter(type, name) ? this.fileArgument(value) : this.convert(value, type, owner);
+        if (isFileParameter(type, name))
+            return this.fileArgument(value);
+
+        if (isTrackParameter(type, name))
+            return this.tracksArgument(value, type, owner);
+
+        return this.convert(value, type, owner);
+    }
+
+    //Tracks as a Lasagna takes them. Rows=2 is two tracks of 0.5, a list gives each its share
+    private tracksArgument(value: Value, type: string, owner: string): string
+    {
+        if ("Integer" !== value.kind)
+        {
+            const tracks = "List" === value.kind ? value.items : [];
+            const sum = tracks.reduce((total, item) => total + ("Integer" === item.kind || "Float" === item.kind ? item.value : 0), 0);
+
+            if (0 < tracks.length && 1e-3 < Math.abs(sum - 1))
+                this.report(value, "warning", "The tracks add up to " + Number(sum.toFixed(4)) + ": each is a share of the size, so together they usually make 1.0.");
+
+            return this.convert(value, type, owner);
+        }
+
+        if (0 >= value.value)
+            throw new ConversionError(value, "This takes at least one track.");
+
+        const shares = Array.from({ length: value.value }, () => floatText(1 / value.value, true));
+
+        if ("std::vector<f32>" === type)
+            return "{ " + shares.join(", ") + " }";
+
+        this._headers.add("<array>");
+        return "std::array { " + shares.join(", ") + " }";
     }
 
     //A file the markup names, as the built app finds it, kept for the scene's file list. Named by a reference
@@ -801,7 +982,7 @@ export abstract class MarkupGenerator
 
     //A default from the schema, written as a .bechaml value: a field's ("Fixed", 1.0) or a setter's (Pixels, a bare enum
     //value). It's checked where the element is, since the mistake is the library's.
-    private convertText(text: string, type: string, owner: string, at: Span, isBareWordEnum = false): string
+    private convertText(text: string, type: string, owner: string, at: Span, isBareWordEnum = false, parameterName?: string): string
     {
         const value = isBareWordEnum && /^[A-Za-z_]\w*$/.test(text) && this.findEnum(type, owner) ? JSON.stringify(text) : text;
         const parsed = parseBechamlValue(value);
@@ -809,7 +990,8 @@ export abstract class MarkupGenerator
         if (0 < parsed.diagnostics.length)
             throw new ConversionError(at, "The schema's default " + text + " for " + type + " isn't a value.");
 
-        return this.convert({ ...parsed.value, start: at.start, end: at.start } as Value, type, owner);
+        const located = { ...parsed.value, start: at.start, end: at.start } as Value;
+        return undefined === parameterName ? this.convert(located, type, owner) : this.convertNamed(located, type, parameterName, owner);
     }
 
     //The value as C++ of the type the setter, field or constructor takes. Owner is the class the type is named in, so
@@ -918,19 +1100,31 @@ export abstract class MarkupGenerator
 
         if (enumeration)
         {
-            if ("String" !== value.kind || !enumeration.values.includes(value.value))
-                throw new ConversionError(value, "This takes one of " + enumeration.values.map(name => "\"" + name + "\"").join(", ") + ".");
+            //A mask takes several of its names, joined by its operator |: { "Colors", "CornerRadii" }
+            const names = enumeration.isMask && "List" === value.kind ? value.items : [value];
+
+            for (const name of names)
+            {
+                if ("String" !== name.kind || !enumeration.values.includes(name.value))
+                    throw new ConversionError(name, "This takes " + (enumeration.isMask ? "a list of " : "one of ") + enumeration.values.map(entry => "\"" + entry + "\"").join(", ") + ".");
+            }
+
+            if (0 === names.length)
+                throw new ConversionError(value, "This takes at least one of " + enumeration.values.map(entry => "\"" + entry + "\"").join(", ") + ".");
 
             this._headers.add(enumeration.header.startsWith("../") ? "PlatformBridge.hpp" : headerName(enumeration.header));
-            return enumeration.cpp + "::" + value.value;
+            return names.map(name => enumeration.cpp + "::" + (name as { value: string }).value).join(" | ");
         }
+
+        if ("struct" === this._schema.classes[type]?.role)
+            throw new ConversionError(value, "A " + type + " is written as a child element named after its setter, its fields as attributes.");
 
         throw new ConversionError(value, "A " + type + " can't be written in .bechaml yet.");
     }
 
     //The enum a type names, looked up as C++ would from the owner: in the owner and the classes around it, in its bases,
     //then in the library; else the one enum of that name nested anywhere.
-    private findEnum(type: string, owner: string): { cpp: string; header: string; values: string[] } | undefined
+    private findEnum(type: string, owner: string): { cpp: string; header: string; values: string[]; isMask?: boolean } | undefined
     {
         const enums = this._schema.enums;
         const ownerKey = owner.replace(/^RetroFuturaGUI::/, "");
@@ -1028,6 +1222,15 @@ function typedOverload(overload: SchemaSetter, valueType: string): SchemaSetter
     const { template, ...rest } = overload;
     const parameters = template ?? [];
     return { ...rest, call: overload.call + "<" + valueType + ">", params: overload.params.map(parameter => parameters.includes(parameter.type) ? { ...parameter, type: valueType } : parameter) };
+}
+
+//The name of one item of a list setter: Gaps is Gap, Entries is Entry.
+function singular(name: string): string
+{
+    if (name.endsWith("ies"))
+        return name.slice(0, -3) + "y";
+
+    return name.endsWith("s") ? name.slice(0, -1) : name;
 }
 
 export function trueValue(attribute: Attribute): Value
