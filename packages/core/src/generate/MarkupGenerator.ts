@@ -104,6 +104,12 @@ export abstract class MarkupGenerator
     //The function a signal calls for one of its targets (Slots.X and so on), or undefined after reporting why not.
     protected abstract connection(value: Value, argumentCount: number): { lambda: string; isAsync: boolean } | undefined;
 
+    //Whether the markup has a widget of that name, for @Name values. A file without widgets has none
+    protected hasWidget(name: string): boolean
+    {
+        return "" === name;
+    }
+
     //Problems
 
     protected error(node: Span | undefined, message: string): void
@@ -350,11 +356,18 @@ export abstract class MarkupGenerator
     }
 
     //The setter a child element stands for when it writes a struct (.bechaml/Plan.md 2.4): named after the setter
-    //(<Transition Duration=150/>), or after one item of a setter taking a list of them (<Gap …/> for Gaps).
-    protected structSetterOf(owner: SchemaClass, elementName: string): StructSetter | undefined
+    //(<Transition Duration=150/>), or after one item of a setter taking a list of them (<Gap …/> for Gaps). A color state
+    //after a colon picks the overload taking one (<RotateZ:Hover …/>), none the one without
+    protected structSetterOf(owner: SchemaClass, element: string): StructSetter | undefined
     {
-        for (const [name, overloads] of Object.entries(owner.setters))
+        const [elementName = "", state] = element.split(":");
+        const hasState = (overload: SchemaSetter): boolean => overload.params.some(parameter => parameter.isState);
+
+        for (const [name, allOverloads] of Object.entries(owner.setters))
         {
+            //The one with a state or without first; the other still names the setter, so its call can say what's wrong
+            const overloads = [...allOverloads].sort((first, second) => Number(hasState(second) === (undefined !== state)) - Number(hasState(first) === (undefined !== state)));
+
             for (const overload of overloads)
             {
                 for (const parameter of overload.params)
@@ -411,6 +424,7 @@ export abstract class MarkupGenerator
         const first = items[0] as Element;
         const consumed = new Set<Attribute>();
         const values: string[] = [];
+        const state = first.name.split(":")[1];
 
         for (const item of items)
         {
@@ -418,8 +432,28 @@ export abstract class MarkupGenerator
                 this.error(item.value ?? item.elements[0] ?? item, "<" + item.name + "> holds its fields as attributes, nothing inside it.");
         }
 
+        if (state && !setter.overload.params.some(parameter => parameter.isState))
+        {
+            this.error(first, setter.name + " has no color states.");
+            return undefined;
+        }
+
         for (const parameter of setter.overload.params)
         {
+            if (parameter.isState)
+            {
+                const states = this._schema.enums["ColorState"];
+
+                if (!states?.values.includes(state ?? "Enabled"))
+                {
+                    this.error(first, state + " isn't a color state: " + (states?.values ?? []).join(", ") + ".");
+                    return undefined;
+                }
+
+                values.push(states.cpp + "::" + (state ?? "Enabled"));
+                continue;
+            }
+
             if (parameter === setter.parameter)
             {
                 const literals = items.map(item => this.structLiteral(setter.type, item, consumed));
@@ -1050,6 +1084,22 @@ export abstract class MarkupGenerator
     //DockingEdge in MenuBar is MenuBar::DockingEdge.
     protected convert(value: Value, type: string, owner: string): string
     {
+        //A widget named by @Name where its name is taken, as the widget a Follow follows
+        const [widgetName, ...rest] = "Reference" === value.kind ? value.segments : [];
+
+        if (widgetName?.startsWith("@") && 0 === rest.length)
+        {
+            if ("std::string" !== type && "std::string_view" !== type)
+                throw new ConversionError(value, "A widget's name like " + widgetName + " only goes where a name is taken.");
+
+            const name = widgetName.slice(1);
+
+            if (!this.hasWidget(name))
+                throw new ConversionError(value, "No widget is named " + name + ".");
+
+            return JSON.stringify(name);
+        }
+
         if ("Reference" === value.kind)
             throw new ConversionError(value, ("Dictionary" === value.segments[0] ? "Dictionary references" : "References such as " + value.segments.join(".")) + " aren't generated yet.");
 

@@ -194,9 +194,11 @@ class Parser
             nameToken = this.take("Name", nameText.length);
             children.push(nameToken);
             const plainName = name.startsWith(prefabPrefix) ? name.slice(prefabPrefix.length) : name.replace(/^@/, "");
+            const isPrefab = name.startsWith(prefabPrefix);
 
-            if (/[.:]/.test(plainName))
-                this.report(nameToken, "<" + name + "> isn't an element name: names have no . or :, only Prefab: before a prefab's name. A part is an element of its own inside its widget, such as <Border> inside <Button>.");
+            //A colon names a color state, as in <RotateZ:Hover …/>. The generator checks the element takes one
+            if (plainName.includes(".") || (isPrefab && plainName.includes(":")) || 1 < plainName.split(":").length - 1)
+                this.report(nameToken, "<" + name + "> isn't an element name: names have no ., and a : only names a color state, as in <RotateZ:Hover>, or comes after Prefab. A part is an element of its own inside its widget, such as <Border> inside <Button>.");
         }
 
         const where = nameToken ?? openTag;
@@ -608,8 +610,10 @@ class Parser
 
         if (text.includes(":"))
             this.report(token, text + " isn't a value: a colon only goes in attribute names, as in Colors:Hover.");
-        else if (text.startsWith("@") && !text.includes("."))
+        else if (text.startsWith("@") && !text.includes(".") && this._isInSignal)
             this.report(token, text + " names a widget; a value calls one of its functions, such as " + text + ".StepUp.");
+        else if (text.startsWith("@") && !text.includes("."))
+            return { kind: "Reference", start: token.start, end: token.end, children: [token], segments: [text] }; //a widget by its name: Widget=@HoverModel
         else if (/^(true|false)$/i.test(text))
             this.report(token, "Write " + text[0]?.toUpperCase() + text.slice(1).toLowerCase() + ": bools are True and False.");
         else if (!text.includes("."))

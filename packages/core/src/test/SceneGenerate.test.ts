@@ -53,10 +53,13 @@ async function testSchema(libraryFolder: string): Promise<Schema>
                 {
                     Enabled: [{ call: "SetEnabled", params: [{ name: "enable", type: "bool" }, { name: "emitSignal", type: "bool" }] }],
                     Transition: [{ call: "SetTransition", params: [{ name: "properties", type: "TransitionProperty" }, { name: "transition", type: "Transition" }] }],
+                    RotateZ: [{ call: "RotateZ", params: [{ name: "run", type: "MotionRun" }] }, { call: "RotateZ", params: [{ name: "run", type: "MotionRun" }, { name: "state", type: "ColorState", isState: true }] }],
+                    MoveZ: [{ call: "MoveZ", params: [{ name: "run", type: "MotionRun" }] }],
+                    Follow: [{ call: "Follow", params: [{ name: "follow", type: "WidgetFollow" }] }],
                     Rotation: [{ call: "SetRotation", params: [{ name: "rotation", type: "glm::vec3" }] }]
                 },
                 signals: { OnClick: signal, OnFilesDropped: { connect: "Connect_OnFilesDropped", slot: "typename Signal<std::vector<std::string>, glm::vec2>::Slot" } },
-                slots: { Press: { call: "Press", params: [] } }
+                slots: { Press: { call: "Press", params: [] }, StopMotions: { call: "StopMotions", params: [] } }
             }),
             Prefab: schemaClass("Prefab", "Widgets/Containers/Prefab.hpp", "widget"),
             FileExplorer: schemaClass("FileExplorer", "Widgets/Window/Dialog/FileExplorer/FileExplorer.hpp", "popup", { popupScopes: ["File"] }),
@@ -114,6 +117,8 @@ async function testSchema(libraryFolder: string): Promise<Schema>
             }),
             FlavorPart: schemaClass("FlavorPart", "Styling/Flavor.hpp", "part", { parts: { Glow: { getter: "GetGlow", type: "FlavorEffect" } }, setters: { Colors: [colors], CornerRadii: [{ call: "SetCornerRadii", params: [{ name: "radii", type: "glm::vec4" }] }] } }),
             FlavorEffect: schemaClass("FlavorEffect", "Styling/Flavor.hpp", "part", { parts: { Flash: { getter: "GetFlash", type: "Flash" } }, setters: { Width: [{ call: "SetWidth", params: [{ name: "value", type: "f32" }] }] } }),
+            MotionRun: schemaClass("MotionRun", "Animation/Motion.hpp", "struct", { fields: { From: { member: "_From", type: "f32", default: "0.0" }, To: { member: "_To", type: "f32", default: "0.0" }, Speed: { member: "_Speed", type: "f32", default: "0.0" }, Repeat: { member: "_RepeatCount", type: "uSize", default: "0" }, Easing: { member: "_Easing", type: "Easing", default: "\"Linear\"" }, Alternate: { member: "_Alternate", type: "bool", default: "False" } } }),
+            WidgetFollow: schemaClass("WidgetFollow", "Animation/Motion.hpp", "struct", { fields: { Widget: { member: "_Widget", type: "std::string", default: "{ }" }, Offset: { member: "_Offset", type: "glm::vec3", default: "0.0" } } }),
             Transition: schemaClass("Transition", "Animation/Transition.hpp", "struct", { fields: { Duration: { member: "_Duration", type: "std::chrono::milliseconds" }, Easing: { member: "_Easing", type: "Easing", default: "\"EaseInOut\"" } } }),
             GlassNoise: schemaClass("GlassNoise", "Shaders/Noise.hpp", "struct", { fields: { CellSize: { member: "_CellSize", type: "f32", default: "128.0" }, Distortion: { member: "_Distortion", type: "f32", default: "12.0" } } }),
             BorderGap: schemaClass("BorderGap", "Rectangles/Frame.hpp", "struct", { fields: { Edge: { member: "_Edge", type: "BorderEdge", default: "\"Top\"" }, Length: { member: "_Length", type: "f32", default: "0.0" }, Repeat: { member: "_Repeat", type: "i32", default: "1" }, CutsBackground: { member: "_CutsBackground", type: "bool", default: "False" } } }),
@@ -320,7 +325,7 @@ test("connects a signal to a function of a named widget with @, and reports an u
             "MenuScene.bechaml:11:13 No prefab is named Stepper; there are none.",
             "MenuScene.bechaml:12:13 <@Grow> sets a named widget of a placed prefab, so it goes inside <Prefab:…>; in a <Layout> it isn't generated yet.",
             "MenuScene.bechaml:5:58 The scene has no widget named Nobody.",
-            "MenuScene.bechaml:5:73 A Button has no function Fly: Press."
+            "MenuScene.bechaml:5:73 A Button has no function Fly: Press, StopMotions."
         ]);
     }
     finally
@@ -493,6 +498,40 @@ test("hands a setter a list of whatever it takes several of, and refuses a list 
             "This takes one of \"FIXED\", \"FILL\".",
             "This takes a list the setter changes (std::span<f32>), which markup can't hand over."
         ]);
+    }
+    finally
+    {
+        rmSync(folder, { recursive: true, force: true });
+    }
+});
+
+test("writes a widget's motions, those of a state too, and the widget it follows, named by @Name, and calls StopMotions from a signal", async () =>
+{
+    const folder = await sceneProject();
+    const markup = path.join(folder, "source", "code", "Scenes", "MenuScene.bechaml");
+    const background = "<Background Colors={ 1.0, 0.5, 0.0 } CornerRadii={ 4.0, 4.0, 4.0, 4.0 }/>";
+    const fixed = "<Button Name=\"Fixed\" Enabled=False/>";
+
+    try
+    {
+        writeFileSync(markup, menuScene
+            .replace(background, background + "\n            <RotateZ From=0.0 To=360.0 Speed=20.0/>\n            <RotateZ:Hover From=0.0 To=-8.0 Speed=40.0 Alternate/>\n            <MoveZ From=0.19 To=0.29 Speed=0.025 Easing=\"EaseInOut\" Alternate/>")
+            .replace(fixed, "<Button Name=\"Fixed\" Enabled=False OnClick=@OkButton.StopMotions>\n                <Follow Widget=@OkButton Offset={ 0.0, 0.0, 0.01 }/>\n            </Button>"));
+        const result = await generateProject(folder);
+        assert.deepEqual(result.problems, []);
+
+        const setup = read(folder, "source/generated/impl/Scenes/MenuScene_setup.cpp");
+        assert.ok(setup.includes("okButton->RotateZ(RetroFuturaGUI::MotionRun { ._From = 0.0f, ._To = 360.0f, ._Speed = 20.0f, ._RepeatCount = 0, ._Easing = RetroFuturaGUI::Easing::Linear, ._Alternate = false });"), "Repeat 0 runs for ever, Linear by default");
+        assert.ok(setup.includes("okButton->RotateZ(RetroFuturaGUI::MotionRun { ._From = 0.0f, ._To = -8.0f, ._Speed = 40.0f, ._RepeatCount = 0, ._Easing = RetroFuturaGUI::Easing::Linear, ._Alternate = true }, RetroFuturaGUI::ColorState::Hover);"), "a color state after the colon picks the overload taking one");
+        assert.ok(setup.includes("okButton->MoveZ(RetroFuturaGUI::MotionRun { ._From = 0.19f, ._To = 0.29f, ._Speed = 0.025f, ._RepeatCount = 0, ._Easing = RetroFuturaGUI::Easing::EaseInOut, ._Alternate = true });"));
+        assert.ok(setup.includes("fixed->Follow(RetroFuturaGUI::WidgetFollow { ._Widget = \"OkButton\", ._Offset = glm::vec3(0.0f, 0.0f, 0.01f) });"), "@OkButton is the widget's name");
+        assert.ok(setup.includes("if(!_okButton) return; _okButton->StopMotions();"), "a signal pauses another widget's motions");
+
+        writeFileSync(markup, menuScene.replace(fixed, "<Button Name=\"Fixed\" Enabled=False>\n                <Follow Widget=@Nobody/>\n            </Button>"));
+        assert.deepEqual((await generateProject(folder)).problems.map(problem => problem.message), ["No widget is named Nobody."]);
+
+        writeFileSync(markup, menuScene.replace(background, background + "\n            <RotateZ:Pressed From=0.0 To=8.0 Speed=40.0/>\n            <Follow:Hover Widget=@Fixed/>"));
+        assert.deepEqual((await generateProject(folder)).problems.map(problem => problem.message), ["Pressed isn't a color state: Enabled, Hover, Clicked.", "Follow has no color states."]);
     }
     finally
     {

@@ -284,6 +284,11 @@ export class SceneGenerator extends MarkupGenerator
         return result(name);
     }
 
+    protected override hasWidget(name: string): boolean
+    {
+        return this._widgets.some(widget => name === widget.name);
+    }
+
     //The scene and its widgets
 
     //The <Slot>s, then the one widget the scene holds: its root Lasagna.
