@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
+import { splitSegments } from "../bechaml/Parser.js";
 import type { Attribute, Document, Element, Value } from "../bechaml/Syntax.js";
 import type { Schema, SchemaClass } from "../schema/Schema.js";
 import type { GenerateProblem } from "./Generator.js";
@@ -208,6 +210,17 @@ export interface WidgetNode
     readonly parts: Element[]; //its parts, and its elements writing a struct to a setter of its own
     readonly prefab?: PrefabModel; //For a placed prefab: what it is, and the entries for its widgets below
     readonly prefabEntries?: Element[]; //<@ButtonUp …> and <Button …>, in their order
+    readonly meshes?: MeshNode[]; //For a Model: the meshes of its file the markup sets, <@Reel_Left …>
+}
+
+//One of a model's meshes the markup sets, <@Reel_Left>: reached through the getter that takes its name (Model's GetMesh)
+export interface MeshNode
+{
+    readonly element: Element;
+    readonly name: string; //as the model file names it: Reel_Left, Cube.001
+    readonly member: string; //_cassetteReelLeft, a reference that empties itself
+    readonly local: string; //cassetteReelLeft
+    readonly setup: string; //setupCassetteReelLeft
 }
 
 //What a widget's name may not be, since it also names a member, a local variable and a setup function.
@@ -224,6 +237,8 @@ export class SceneGenerator extends MarkupGenerator
     protected readonly _widgets: WidgetNode[] = [];
     private readonly _takenByParent = new Map<WidgetNode, Set<Attribute>>(); //A child's attributes its parent's children setter took.
     private readonly _prefabSetups: { name: string; statements: Statement[] }[] = []; //A placed prefab's setup per widget its entries reach
+    private readonly _meshSetups: { name: string; statements: Statement[] }[] = []; //A model's setup per mesh the markup sets
+    private readonly _meshNames = new Map<string, readonly string[] | undefined>(); //A model file's mesh names, read once; undefined when they can't be read
     protected _name = "";
     protected _usesForward = false;
     private readonly _loads = new Set<string>(); //The scenes its Slots.LoadScene(Scenes.X) load.
@@ -364,12 +379,23 @@ export class SceneGenerator extends MarkupGenerator
         if (element.value)
             this.error(element.value, "A widget holds parts and widgets, not a value.");
 
-        const node: WidgetNode = { element: element, type: element.name, schemaClass: schemaClass, name: name, member: this.memberOf(name), local: lowerFirst(name), parent: parent, index: index, children: [], parts: [] };
+        const node: WidgetNode = { element: element, type: element.name, schemaClass: schemaClass, name: name, member: this.memberOf(name), local: lowerFirst(name), parent: parent, index: index, children: [], parts: [], meshes: [] };
         this._widgets.push(node);
         this._headers.add(headerName(schemaClass.header));
 
         for (const child of element.elements)
         {
+            //A mesh of the model's file, <@Reel_Left>, set through the getter that takes its name
+            if (child.name.startsWith("@"))
+            {
+                if (schemaClass.namedPart)
+                    this.readMesh(child, node);
+                else
+                    this.error(child, "<" + child.name + "> sets a mesh of a <Model>'s file, or inside <Prefab:…> a widget of the prefab; a " + element.name + " has neither.");
+
+                continue;
+            }
+
             //A part, or a setter writing a struct (<Transition Duration=150/>), both of the widget itself
             if (schemaClass.parts[child.name] || this.structSetterOf(schemaClass, child.name))
             {
@@ -396,6 +422,76 @@ export class SceneGenerator extends MarkupGenerator
         }
 
         return node;
+    }
+
+    //<@Reel_Left> inside a Model: the mesh's name, checked against the model file where Roux can read its names, and the
+    //member and setup it gets, named after the model and the mesh (_cassetteReelLeft, setupCassetteReelLeft)
+    private readMesh(element: Element, model: WidgetNode): void
+    {
+        const named = model.schemaClass.namedPart;
+        const meshClass = named ? this._schema.classes[named.type] : undefined;
+
+        if (!named || !meshClass)
+            return;
+
+        if ("scene" !== this.kind())
+        {
+            this.error(element, "A model's meshes inside a prefab aren't generated yet.");
+            return;
+        }
+
+        const name = (splitSegments(element.name)[0] ?? "").slice(1);
+
+        if (!name)
+        {
+            this.error(element, "<@> needs the mesh's name, as the model file gives it: <@Reel_Left>, or quoted, <@\"Cube.001\">.");
+            return;
+        }
+
+        if (element.value)
+            this.error(element.value, "A mesh holds its parts and motions, not a value.");
+
+        if ((model.meshes ?? []).some(mesh => name === mesh.name))
+        {
+            this.error(element, model.name + "'s mesh " + name + " is set once; put everything for it into one <@" + name + ">.");
+            return;
+        }
+
+        const fileValue = this.fileAttributeOf(model.schemaClass, model.element);
+        const names = fileValue ? this.meshNamesOf(fileValue) : undefined;
+
+        if (names && !names.includes(name))
+        {
+            this.error(element, "The model's file has no mesh named " + name + (names.length ? ": " + names.join(", ") + "." : "; it names none."));
+            return;
+        }
+
+        const identifier = model.name + name.split(/[^A-Za-z0-9]+/).filter(Boolean).map(upperFirst).join("");
+        const member = this.memberOf(identifier);
+
+        if (this._widgets.some(widget => member === widget.member) || this._widgets.some(widget => (widget.meshes ?? []).some(mesh => member === mesh.member)))
+        {
+            this.error(element, "The mesh's member " + member + " is a widget's or another mesh's name already; rename one of them.");
+            return;
+        }
+
+        model.meshes?.push({ element: element, name: name, member: member, local: lowerFirst(identifier), setup: "setup" + identifier });
+        this._headers.add(headerName(meshClass.header));
+    }
+
+    //The names a model file gives its meshes, where Roux can read them: an OBJ's objects and groups, a glTF's nodes.
+    //Undefined for other formats, which are checked only when the scene runs
+    private meshNamesOf(value: Value): readonly string[] | undefined
+    {
+        const file = this.sourceFileOf(value);
+
+        if (!file)
+            return undefined;
+
+        if (!this._meshNames.has(file))
+            this._meshNames.set(file, readMeshNames(file));
+
+        return this._meshNames.get(file);
     }
 
     //The widget's name, checked to name a C++ member and a setup function and to be the only one of the scene's
@@ -630,6 +726,18 @@ export class SceneGenerator extends MarkupGenerator
         if (0 < body.length)
             statements.push({ text: "" }, ...body);
 
+        //After its values, so the model shows its file before its meshes are looked up in it
+        if (0 < (widget.meshes ?? []).length)
+        {
+            statements.push({ text: "" });
+
+            for (const mesh of widget.meshes ?? [])
+            {
+                this._meshSetups.push({ name: mesh.setup, statements: this.meshSetupStatements(widget, mesh) });
+                statements.push({ text: mesh.setup + "();", line: this.lineOf(mesh.element) });
+            }
+        }
+
         const children = widget.schemaClass.container?.children;
 
         if (children && 0 < widget.children.length)
@@ -653,6 +761,53 @@ export class SceneGenerator extends MarkupGenerator
             for (const child of widget.children)
                 statements.push({ text: this.setupCall(child, widget) });
         }
+
+        return statements;
+    }
+
+    //A mesh's setup: the model hands it out by its name, then it's given its values, signals, parts and motions. A mesh the
+    //file lacks skips only its own setup
+    private meshSetupStatements(model: WidgetNode, mesh: MeshNode): Statement[]
+    {
+        const named = model.schemaClass.namedPart;
+        const meshClass = named ? this._schema.classes[named.type] : undefined;
+
+        if (!named || !meshClass)
+            return [];
+
+        const line = this.lineOf(mesh.element);
+        const statements: Statement[] =
+        [
+            { text: model.schemaClass.cpp + "* " + model.local + " { " + model.member + ".Get() };" },
+            { text: "" },
+            { text: "if(!" + model.local + ")" },
+            { text: "    return;" },
+            { text: "" },
+            { text: mesh.member + " = " + model.local + "->" + named.getter + "(" + JSON.stringify(mesh.name) + ");", line: line },
+            { text: meshClass.cpp + "* " + mesh.local + " { " + mesh.member + ".Get() };" },
+            { text: "" },
+            { text: "if(!" + mesh.local + ")" },
+            { text: "    return;" }
+        ];
+
+        const target = mesh.local + "->";
+        const body = this.attributeStatements(meshClass, "@" + mesh.name, mesh.element.attributes, target);
+        const structs: Element[] = [];
+
+        for (const child of mesh.element.elements)
+        {
+            if (meshClass.parts[child.name])
+                body.push(...this.partStatements(meshClass, child, target));
+            else if (this.structSetterOf(meshClass, child.name))
+                structs.push(child);
+            else
+                this.error(child, child.name + " isn't a part or a motion of a mesh: " + [...Object.keys(meshClass.parts), "RotateX/Y/Z", "MoveX/Y/Z", "ScaleX/Y/Z"].join(", ") + ".");
+        }
+
+        body.push(...this.structSetterStatements(meshClass, structs, target));
+
+        if (0 < body.length)
+            statements.push({ text: "" }, ...body);
 
         return statements;
     }
@@ -927,7 +1082,41 @@ export class SceneGenerator extends MarkupGenerator
             return { lambda: ignoring + " { if(!" + widget.member + ") return; " + widget.member + "->" + slot.call + "(" + callArguments.join(", ") + "); }", isAsync: false };
         }
 
-        this.unknownTarget(value, "Slots.<Name>, Slots.LoadScene(Scenes.<Name>), Window.<Name> or @<Widget>.<Function>");
+        //@Cassette.Reel_Left.StartMotions: a function of one of a model's meshes the markup sets, <@Reel_Left>
+        const [modelReference, meshName, meshSlotName, ...extra] = "Reference" === value.kind && !value.arguments ? value.segments : [];
+
+        if (modelReference?.startsWith("@") && meshName && meshSlotName && 0 === extra.length)
+        {
+            const model = this._widgets.find(node => modelReference.slice(1) === node.name);
+            const mesh = model?.meshes?.find(candidate => meshName === candidate.name);
+            const meshClass = model?.schemaClass.namedPart ? this._schema.classes[model.schemaClass.namedPart.type] : undefined;
+
+            if (!model || !meshClass)
+            {
+                this.error(value, model ? model.name + " has no meshes to reach." : "The scene has no widget named " + modelReference.slice(1) + ".");
+                return undefined;
+            }
+
+            if (!mesh)
+            {
+                this.error(value, model.name + "'s mesh " + meshName + " isn't set in the markup: add <@" + (/^[A-Za-z_]\w*$/.test(meshName) ? meshName : "\"" + meshName + "\"") + "/> inside <" + model.type + " Name=\"" + model.name + "\">.");
+                return undefined;
+            }
+
+            const slot = meshClass.slots[meshSlotName];
+            const callArguments = slot ? builtInArguments(slot.params) : undefined;
+
+            if (!slot || !callArguments)
+            {
+                const names = Object.entries(meshClass.slots).filter(([, entry]) => builtInArguments(entry.params)).map(([slotName]) => slotName);
+                this.error(value, "A mesh has no function " + meshSlotName + (names.length ? ": " + names.join(", ") + "." : "; it has none to call yet."));
+                return undefined;
+            }
+
+            return { lambda: ignoring + " { if(!" + mesh.member + ") return; " + mesh.member + "->" + slot.call + "(" + callArguments.join(", ") + "); }", isAsync: false };
+        }
+
+        this.unknownTarget(value, "Slots.<Name>, Slots.LoadScene(Scenes.<Name>), Window.<Name>, @<Widget>.<Function> or @<Model>.<Mesh>.<Function>");
         return undefined;
     }
 
@@ -986,6 +1175,17 @@ export class SceneGenerator extends MarkupGenerator
         for (const widget of this._widgets)
             lines.push(widget.prefab ? "        " + widget.prefab.cpp + " " + widget.member + " {};" : "        RetroFuturaGUI::WidgetReference<" + widget.schemaClass.cpp + "> " + widget.member + " { nullptr };");
 
+        //Each mesh's reference is named after its class: a ModelMesh's is a ModelMeshReference
+        const meshMembers = this._widgets.flatMap(widget => (widget.meshes ?? []).map(mesh => ({ widget: widget, mesh: mesh })));
+
+        if (0 < meshMembers.length)
+        {
+            lines.push("", "    //Meshes of the models, empty once a model loads another file or goes.");
+
+            for (const { widget, mesh } of meshMembers)
+                lines.push("        " + (this._schema.classes[widget.schemaClass.namedPart?.type ?? ""]?.cpp ?? "") + "Reference " + mesh.member + " { nullptr };");
+        }
+
         if (0 < this._slots.size)
         {
             lines.push("", "    //Slots, which the scene's class overrides.");
@@ -1005,7 +1205,7 @@ export class SceneGenerator extends MarkupGenerator
             for (const widget of setups)
                 lines.push("        void setup" + widget.name + "(" + (widget.parent as WidgetNode).schemaClass.cpp + "& " + (widget.parent as WidgetNode).local + ");");
 
-            for (const setup of this._prefabSetups)
+            for (const setup of [...this._prefabSetups, ...this._meshSetups])
                 lines.push("        void " + setup.name + "();");
         }
 
@@ -1059,7 +1259,7 @@ export class SceneGenerator extends MarkupGenerator
             writer.write("}");
         }
 
-        for (const setup of this._prefabSetups)
+        for (const setup of [...this._prefabSetups, ...this._meshSetups])
         {
             writer.write("");
             writer.write("void " + name + "::" + setup.name + "()");
@@ -1070,4 +1270,35 @@ export class SceneGenerator extends MarkupGenerator
 
         return writer.text();
     }
+}
+
+//The names a model file gives its meshes, as Assimp hands them to Model::GetMesh: an OBJ's objects and groups, a glTF's or
+//GLB's nodes. Undefined for another format or a file that can't be read.
+function readMeshNames(file: string): readonly string[] | undefined
+{
+    const extension = path.extname(file).toLowerCase();
+
+    try
+    {
+        if (".obj" === extension)
+        {
+            const names = readFileSync(file, "utf8").split(/\r?\n/).map(line => /^[og]\s+(.+?)\s*$/.exec(line)?.[1]).filter((name): name is string => undefined !== name);
+            return [...new Set(names)];
+        }
+
+        if (".gltf" === extension || ".glb" === extension)
+        {
+            const bytes = readFileSync(file);
+            //A GLB is a 12-byte header, then its JSON chunk: its length, its type, then the JSON
+            const json = ".glb" === extension ? bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString("utf8") : bytes.toString("utf8");
+            const nodes = (JSON.parse(json) as { nodes?: { name?: unknown }[] }).nodes ?? [];
+            return [...new Set(nodes.map(node => node.name).filter((name): name is string => "string" === typeof name))];
+        }
+    }
+    catch
+    {
+        return undefined;
+    }
+
+    return undefined;
 }

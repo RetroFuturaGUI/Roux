@@ -57,8 +57,9 @@ export interface SchemaChildren
     type: string; //the struct's key in classes: MenuBar::FlexDefinition
 }
 
-//placement: what a container's AddWidget takes. struct: what a constructor or a children setter takes.
-export type SchemaRole = "widget" | "window" | "scene" | "part" | "placement" | "struct" | "flavor" | "popup";
+//placement: what a container's AddWidget takes. struct: what a constructor or a children setter takes. named: what a
+//getter taking a name hands out, a Model's ModelMesh, written <@Name> inside its owner
+export type SchemaRole = "widget" | "window" | "scene" | "part" | "placement" | "struct" | "flavor" | "popup" | "named";
 
 export interface SchemaClass
 {
@@ -75,6 +76,7 @@ export interface SchemaClass
     //A widget that builds widgets inside it: Lasagna's AddWidget and CellPlacement; a MenuBar's AddWidget takes an index
     container?: { add: string; placement: string; children?: SchemaChildren; widget?: string }; //widget: the one type a container adds through its own @bechaml add function, AddRadioButton
     popupScopes?: string[]; //@bechaml popup: the StyleScope values a popup type styles under
+    namedPart?: { getter: string; type: string }; //@bechaml named: Model's GetMesh(name), which <@Reel_Left> goes through
 }
 
 export interface SchemaEnum

@@ -26,13 +26,21 @@ export function parseBechamlValue(text: string): { value: Value; diagnostics: re
     return new Parser(text).parseSingleValue();
 }
 
+//A reference's names, split at its dots, a quoted name's quotes taken off: @Cassette."Cube.001".StartMotions is @Cassette,
+//Cube.001 and StartMotions. A quoted name keeps the dots inside it
+export function splitSegments(text: string): string[]
+{
+    return (text.match(/(?:@?"[^"]*"|[^.])+/g) ?? []).map(segment => segment.replace(/^(@?)"([^"]*)"$/, "$1$2"));
+}
+
 //Elements whose text is kept as it is instead of being read as a value. A slot's C++ signature may hold < and >
 const rawTextElements = new Set(["Slot"]);
 
 //Element names, attribute names (Colors:Hover) and references (Dictionary.Colors.Accent). Each place checks the shape
 const nameExpression = /[A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*/y;
-//Element names and references, which may also start with @ to name a widget: <@ButtonUp>, @ActualSlider.StepUp
-const namedExpression = /@?[A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*/y;
+//Element names and references, which may also start with @ to name a widget: <@ButtonUp>, @ActualSlider.StepUp. A name a
+//markup name can't be is quoted after the @ or a dot: <@"Cube.001">, @Cassette."Cube.001".StartMotions
+const namedExpression = /(?:@"[^"\r\n]*"|@?[A-Za-z_][A-Za-z0-9_]*)(?:[.:](?:[A-Za-z_][A-Za-z0-9_]*|"[^"\r\n]*"))*/y;
 //The one prefix an element name may have: Prefab:StepperSlider places a prefab
 const prefabPrefix = "Prefab:";
 const whitespaceExpression = /[ \t\r\n]+/y;
@@ -195,9 +203,10 @@ class Parser
             children.push(nameToken);
             const plainName = name.startsWith(prefabPrefix) ? name.slice(prefabPrefix.length) : name.replace(/^@/, "");
             const isPrefab = name.startsWith(prefabPrefix);
+            const isQuoted = /^@"[^"]*"$/.test(name);
 
             //A colon names a color state, as in <RotateZ:Hover …/>. The generator checks the element takes one
-            if (plainName.includes(".") || (isPrefab && plainName.includes(":")) || 1 < plainName.split(":").length - 1)
+            if (!isQuoted && (plainName.includes(".") || (isPrefab && plainName.includes(":")) || 1 < plainName.split(":").length - 1))
                 this.report(nameToken, "<" + name + "> isn't an element name: names have no ., and a : only names a color state, as in <RotateZ:Hover>, or comes after Prefab. A part is an element of its own inside its widget, such as <Border> inside <Button>.");
         }
 
@@ -604,24 +613,25 @@ class Parser
     private parseName(text: string): Value
     {
         const token = this.take("Name", text.length);
+        const segments = splitSegments(text);
 
         if ("True" === text || "False" === text)
             return { kind: "Bool", start: token.start, end: token.end, children: [token], value: "True" === text };
 
-        if (text.includes(":"))
+        if (segments.some(segment => segment.includes(":")) && !text.includes("\""))
             this.report(token, text + " isn't a value: a colon only goes in attribute names, as in Colors:Hover.");
-        else if (text.startsWith("@") && !text.includes(".") && this._isInSignal)
+        else if (text.startsWith("@") && 1 === segments.length && this._isInSignal)
             this.report(token, text + " names a widget; a value calls one of its functions, such as " + text + ".StepUp.");
-        else if (text.startsWith("@") && !text.includes("."))
-            return { kind: "Reference", start: token.start, end: token.end, children: [token], segments: [text] }; //a widget by its name: Widget=@HoverModel
+        else if (text.startsWith("@") && 1 === segments.length)
+            return { kind: "Reference", start: token.start, end: token.end, children: [token], segments: segments }; //a widget by its name: Widget=@HoverModel
         else if (/^(true|false)$/i.test(text))
             this.report(token, "Write " + text[0]?.toUpperCase() + text.slice(1).toLowerCase() + ": bools are True and False.");
-        else if (!text.includes("."))
+        else if (1 === segments.length)
             this.report(token, text + " needs quotes: \"" + text + "\". Text and enum values are strings.");
         else if (this.isAt("("))
             return this.parseCall(token);
         else
-            return { kind: "Reference", start: token.start, end: token.end, children: [token], segments: text.split(".") };
+            return { kind: "Reference", start: token.start, end: token.end, children: [token], segments: segments };
 
         return this.invalid([token]);
     }
@@ -675,7 +685,7 @@ class Parser
             isAfterComma = false;
         }
 
-        return { kind: "Reference", start: name.start, end: this._position, children: children, segments: name.text.split("."), arguments: items };
+        return { kind: "Reference", start: name.start, end: this._position, children: children, segments: splitSegments(name.text), arguments: items };
     }
 
     //At "</". Reads the closing tag into children and returns its span.

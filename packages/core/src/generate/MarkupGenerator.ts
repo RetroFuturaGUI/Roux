@@ -749,9 +749,9 @@ export abstract class MarkupGenerator
     //Flavors={ Flavors.Primary, Flavors.Wide } on a widget. Each added in its order, the first winning over the later ones
     private flavorStatements(schemaClass: SchemaClass, attribute: Attribute, target: string): Statement[]
     {
-        if ("widget" !== schemaClass.role)
+        if ("widget" !== schemaClass.role && "named" !== schemaClass.role)
         {
-            this.error(attribute, "Flavors go on a widget, and reach its parts from there.");
+            this.error(attribute, "Flavors go on a widget or a model's mesh, and reach its parts from there.");
             return [];
         }
 
@@ -1028,10 +1028,44 @@ export abstract class MarkupGenerator
 
     private findFile(value: Value): string
     {
+        return this.locateFile(value).file;
+    }
+
+    //The value of the element's attribute that names a file, such as a Model's ModelPath: a setter taking a path
+    protected fileAttributeOf(schemaClass: SchemaClass, element: Element): Value | undefined
+    {
+        const attribute = element.attributes.find(candidate => (schemaClass.setters[candidate.setter] ?? []).some(overload => 1 === overload.params.length && overload.params[0] && isFileParameter(overload.params[0].type, overload.params[0].name)));
+        return attribute?.value;
+    }
+
+    //Where a file the markup names lies in the project, so its contents can be read (a model's mesh names), undefined when
+    //the value names no file there
+    protected sourceFileOf(value: Value): string | undefined
+    {
+        try
+        {
+            return this.locateFile(value).source;
+        }
+        catch (error)
+        {
+            if (error instanceof ConversionError)
+                return undefined;
+
+            throw error;
+        }
+    }
+
+    //A file the markup names: as the built app finds it, and where it lies in the project
+    private locateFile(value: Value): { file: string; source: string }
+    {
         //The build copies the project's asset folders into Assets/ and RetroFuturaGUI's Resources into Resources/
         const projectFolders = this._assetFolders.map(folder => path.join(this._folder, folder));
         const libraryFolder = path.join(this._folder, "RetroFuturaGUI", "Resources");
-        const find = (folders: readonly string[], relative: string, copiedTo: string) => folders.some(folder => isFile(path.join(folder, relative))) ? copiedTo + "/" + relative : undefined;
+        const find = (folders: readonly string[], relative: string, copiedTo: string) =>
+        {
+            const folder = folders.find(candidate => isFile(path.join(candidate, relative)));
+            return undefined === folder ? undefined : { file: copiedTo + "/" + relative, source: path.join(folder, relative) };
+        };
 
         if ("Reference" === value.kind)
         {

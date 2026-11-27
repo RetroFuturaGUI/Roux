@@ -195,6 +195,9 @@ export function buildSchema(roots: readonly AstNode[], sourceFolder: string): Bu
         {
             const reached: [string, SchemaRole][] = Object.values(schemaClass.parts).map(part => [part.type, "part"]);
 
+            if (schemaClass.namedPart)
+                reached.push([schemaClass.namedPart.type, "named"]);
+
             if (schemaClass.container && classes.has(schemaClass.container.placement))
                 reached.push([schemaClass.container.placement, "placement"]);
 
@@ -436,6 +439,7 @@ function toSchemaClass(raw: RawClass, role: SchemaRole, methods: RawMethod[], cl
     const slots: Record<string, SchemaSlot> = {};
     let container: SchemaClass["container"];
     let children: SchemaChildren | undefined;
+    let namedPart: SchemaClass["namedPart"];
 
     for (const method of methods)
     {
@@ -459,6 +463,19 @@ function toSchemaClass(raw: RawClass, role: SchemaRole, methods: RawMethod[], cl
                 container = { add: method.name, placement: cleanType(method.params[1].type), widget: baseName(widget) };
             else
                 problems.push(raw.key + "::" + method.name + ": @bechaml add needs a name and a place, and returns the widget it adds.");
+
+            continue;
+        }
+
+        //GetMesh(name): a getter taking a name and handing out what it names by pointer, written <@Name> inside the owner
+        if (tags.isNamed)
+        {
+            const returned = /^([\w:]+) \*\(/.exec(method.qualType)?.[1];
+
+            if (returned && /^Get[A-Z]\w*$/.test(method.name) && 1 === method.params.length && /^std::string(?:_view)?$/.test(cleanType(method.params[0]?.type ?? "")))
+                namedPart = { getter: method.name, type: baseName(cleanType(returned)) };
+            else
+                problems.push(raw.key + "::" + method.name + ": @bechaml named needs a Get… taking a name, std::string_view, and returning a pointer.");
 
             continue;
         }
@@ -553,6 +570,9 @@ function toSchemaClass(raw: RawClass, role: SchemaRole, methods: RawMethod[], cl
         constructorArgs: constructor ? constructor.params.slice(widgetConstructorParameters) : []
     };
 
+    if (namedPart)
+        schemaClass.namedPart = namedPart;
+
     if (container)
         schemaClass.container = children ? { ...container, children: children } : container;
     else if (children)
@@ -573,17 +593,18 @@ interface Tags
     isChildren: boolean;
     isSetter: boolean;
     isAdd: boolean;
+    isNamed: boolean;
     name?: string;
     group?: string[];
     defaults?: Record<string, string>;
 }
 
-const tagKinds = "group, default, name, internal, slot, children, setter, add";
+const tagKinds = "group, default, name, internal, slot, children, setter, add, named";
 
 //The tags of one method or field; one that isn't a known kind is reported, so a misspelled tag doesn't pass unnoticed.
 function parseTags(tags: readonly string[], where: string, problems: string[]): Tags
 {
-    const parsed: Tags = { isInternal: false, isSlot: false, isChildren: false, isSetter: false, isAdd: false };
+    const parsed: Tags = { isInternal: false, isSlot: false, isChildren: false, isSetter: false, isAdd: false, isNamed: false };
 
     for (const tag of tags)
     {
@@ -605,6 +626,9 @@ function parseTags(tags: readonly string[], where: string, problems: string[]): 
                 break;
             case "add":
                 parsed.isAdd = true;
+                break;
+            case "named":
+                parsed.isNamed = true;
                 break;
             case "name":
                 parsed.name = words[0];

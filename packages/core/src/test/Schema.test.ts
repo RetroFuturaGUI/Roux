@@ -148,7 +148,7 @@ test("keeps what the generator may call: widgets with what they inherit, their p
     assert.deepEqual(classes["Lasagna"]?.container, { add: "AddWidget", placement: "CellPlacement" });
     assert.deepEqual(classes["CellPlacement"], { cpp: "RetroFuturaGUI::CellPlacement", header: "Widgets/Button.hpp", role: "placement", bases: [], parts: {}, setters: {}, signals: {}, slots: {}, fields: { Row: { member: "_Row", type: "uSize" } }, constructorArgs: [] });
     assert.deepEqual(classes["MessagePopup"]?.popupScopes, ["Message", "Warning", "Error"]);
-    assert.deepEqual(problems, ["Background::SetWidth: @bechaml frobnicate isn't one of group, default, name, internal, slot, children, setter, add."]);
+    assert.deepEqual(problems, ["Background::SetWidth: @bechaml frobnicate isn't one of group, default, name, internal, slot, children, setter, add, named."]);
 });
 
 //A field as Clang writes it, with its initializer: { 1.0f } is an InitListExpr around the literal.

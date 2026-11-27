@@ -75,6 +75,24 @@ async function testSchema(libraryFolder: string): Promise<Schema>
                 constructorArgs: [{ name: "parentGroup", type: "RadioButtonGroup *" }]
             }),
             Label: schemaClass("Label", "Widgets/Label.hpp", "widget", { parts: { Text: { getter: "GetText", type: "WidgetText" } } }),
+            Model: schemaClass("Model", "Widgets/Model.hpp", "widget",
+            {
+                setters: { ModelPath: [{ call: "LoadModel", params: [{ name: "path", type: "std::string_view" }] }] },
+                namedPart: { getter: "GetMesh", type: "ModelMesh" }
+            }),
+            ModelMesh: schemaClass("ModelMesh", "Widgets/Parts/ModelMesh.hpp", "named",
+            {
+                parts: { Wireframe: { getter: "GetWireframe", type: "Glow" } },
+                setters:
+                {
+                    Shown: [{ call: "Show", params: [{ name: "show", type: "bool" }] }],
+                    Position: [{ call: "SetPosition", params: [{ name: "position", type: "glm::vec3" }] }],
+                    MotionsStopped: [{ call: "SetMotionsStopped", params: [{ name: "stopped", type: "bool" }] }],
+                    RotateZ: [{ call: "RotateZ", params: [{ name: "run", type: "MotionRun" }] }, { call: "RotateZ", params: [{ name: "run", type: "MotionRun" }, { name: "state", type: "ColorState", isState: true }] }]
+                },
+                signals: { OnClick: signal },
+                slots: { StartMotions: { call: "StartMotions", params: [] }, StopMotions: { call: "StopMotions", params: [] } }
+            }),
             ComboBox: schemaClass("ComboBox", "Widgets/ComboBox.hpp", "widget",
             {
                 setters:
@@ -323,7 +341,7 @@ test("connects a signal to a function of a named widget with @, and reports an u
         assert.deepEqual(messages,
         [
             "MenuScene.bechaml:11:13 No prefab is named Stepper; there are none.",
-            "MenuScene.bechaml:12:13 <@Grow> sets a named widget of a placed prefab, so it goes inside <Prefab:…>; in a <Layout> it isn't generated yet.",
+            "MenuScene.bechaml:12:13 <@Grow> sets a mesh of a <Model>'s file, or inside <Prefab:…> a widget of the prefab; a MenuBar has neither.",
             "MenuScene.bechaml:5:58 The scene has no widget named Nobody.",
             "MenuScene.bechaml:5:73 A Button has no function Fly: Press, StopMotions."
         ]);
@@ -652,7 +670,7 @@ test("registers a Flavors file's flavors in RegisterStyles, and gives a widget t
             "A flavor is named by a string that is a name: <Flavor Name=\"Primary\">.",
             "Another Flavors file names a flavor Metal already: " + path.join("source", "code", "Flavors", "Looks.bechaml") + ".",
             "Every widget has Flavors.Default already, after its own flavors.",
-            "Flavors go on a widget, and reach its parts from there.",
+            "Flavors go on a widget or a model's mesh, and reach its parts from there.",
             "No flavor is named Nope: Metal."
         ].sort());
     }
@@ -962,6 +980,74 @@ test("finds the files the markup names, by reference or by a path in an asset fo
             "4: RetroFuturaGUI's Resources have no Images/Missing.png.",
             "5: A file's path stays inside an asset folder, such as \"Images/Logo.svg\".",
             "8: A file is named Assets.<folders>.<name>.<extension> or RetroFuturaGUI.<folders>.<name>.<extension>, such as Assets.Images.Logo.svg."
+        ]);
+    }
+    finally
+    {
+        rmSync(folder, { recursive: true, force: true });
+    }
+});
+
+test("sets a model's meshes by name with <@Name>, quoted where the name isn't a markup name, and reaches them from signals and members", async () =>
+{
+    const folder = await sceneProject();
+
+    try
+    {
+        mkdirSync(path.join(folder, "RetroFuturaGUI", "Resources", "Models"), { recursive: true });
+        writeFileSync(path.join(folder, "RetroFuturaGUI", "Resources", "Models", "Box.obj"), "o Lid\nv 0 0 0\no Base\nv 1 1 1\ng Cube.001\nv 2 2 2\n");
+        const markup = path.join(folder, "source", "code", "Scenes", "MenuScene.bechaml");
+        const model = [
+            "        <Model Name=\"Box\" Row=0 Column=1 ModelPath=RetroFuturaGUI.Models.Box.obj>",
+            "            <@Lid MotionsStopped Shown=False OnClick=Slots.Save>",
+            "                <RotateZ From=0.0 To=360.0 Speed=90.0/>",
+            "                <RotateZ:Hover From=0.0 To=10.0 Speed=20.0/>",
+            "                <Wireframe Colors={ 1.0, 0.0, 0.0 }/>",
+            "            </@Lid>",
+            "            <@\"Cube.001\" Position={ 0.0, 1.0, 0.0 }/>",
+            "        </Model>",
+            "        <Button Name=\"Starter\" Row=1 Column=0 OnClick={ @Box.Lid.StartMotions, @Box.\"Cube.001\".StopMotions }/>"
+        ].join("\n");
+        writeFileSync(markup, menuScene.replace("    </Lasagna>", model + "\n    </Lasagna>"));
+        const result = await generateProject(folder);
+        assert.deepEqual(result.problems, []);
+
+        const header = read(folder, "source/generated/impl/Scenes/MenuScene_p.hpp");
+        assert.match(header, /RetroFuturaGUI::ModelMeshReference _boxLid \{ nullptr \};/);
+        assert.match(header, /RetroFuturaGUI::ModelMeshReference _boxCube001 \{ nullptr \};/);
+        assert.match(header, /void setupBoxLid\(\);/);
+        assert.match(header, /#include "Widgets\/Parts\/ModelMesh.hpp"|#include "ModelMesh.hpp"/);
+
+        const setup = read(folder, "source/generated/impl/Scenes/MenuScene_setup.cpp");
+        assert.match(setup, /box->LoadModel\("Resources\/Models\/Box.obj"\);[\s\S]*setupBoxLid\(\);[\s\S]*setupBoxCube001\(\);/);
+        assert.match(setup, /_boxLid = box->GetMesh\("Lid"\);/);
+        assert.match(setup, /_boxCube001 = box->GetMesh\("Cube.001"\);/);
+        assert.match(setup, /boxLid->SetMotionsStopped\(true\);/);
+        assert.match(setup, /boxLid->Show\(false\);/);
+        assert.match(setup, /boxLid->Connect_OnClick\(/);
+        assert.match(setup, /boxLid->RotateZ\(RetroFuturaGUI::MotionRun \{ ._From = 0.0f, ._To = 360.0f, ._Speed = 90.0f/);
+        assert.match(setup, /boxLid->RotateZ\(RetroFuturaGUI::MotionRun \{[^}]*\}, RetroFuturaGUI::ColorState::Hover\);/);
+        assert.match(setup, /boxLid->GetWireframe\(\)\.SetColors\(/);
+        assert.match(setup, /boxCube001->SetPosition\(glm::vec3\(0.0f, 1.0f, 0.0f\)\);/);
+        assert.match(setup, /if\(!_boxLid\) return; _boxLid->StartMotions\(\);/);
+        assert.match(setup, /if\(!_boxCube001\) return; _boxCube001->StopMotions\(\);/);
+
+        writeFileSync(markup, menuScene.replace("    </Lasagna>", [
+            "        <Model Name=\"Box\" Row=0 Column=1 ModelPath=RetroFuturaGUI.Models.Box.obj>",
+            "            <@Nope/>",
+            "            <@Lid>",
+            "                <Text String=\"No\"/>",
+            "            </@Lid>",
+            "        </Model>",
+            "        <Button Name=\"Starter\" Row=1 Column=0 OnClick={ @Box.Base.StartMotions, @Box.Lid.Fly }/>",
+            "    </Lasagna>"].join("\n")));
+        const messages = (await generateProject(folder)).problems.map(problem => problem.message);
+        assert.deepEqual(messages,
+        [
+            "The model's file has no mesh named Nope: Lid, Base, Cube.001.",
+            "Text isn't a part or a motion of a mesh: Wireframe, RotateX/Y/Z, MoveX/Y/Z, ScaleX/Y/Z.",
+            "Box's mesh Base isn't set in the markup: add <@Base/> inside <Model Name=\"Box\">.",
+            "A mesh has no function Fly: StartMotions, StopMotions."
         ]);
     }
     finally
